@@ -4243,7 +4243,7 @@ const hydraDB = window.supabase.createClient(
 
 async function saveHydraMission(input) {
   const { error } = await hydraDB
-    .from("missions")
+    .from("Missions")
     .insert([{ input }]);
 
   if (error) {
