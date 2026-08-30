@@ -70,9 +70,45 @@ Per your instructions: no Stripe, no external provider APIs beyond OpenAI + Supa
 - `GET /api/projects/:id` → `{ project, mission }`, everything "Resume" needs to redraw the node timeline and jump to the right step.
 - `PATCH /api/projects/:id` → `{ current_node?, status? }`, the explicit "Save Current Progress" action, fired automatically as the user moves through the workflow nodes.
 
-**Frontend** — a new "Hydra Workspace" section (own nav item, reuses the existing card/button/input classes — no new visual language introduced): a sign up / log in form when signed out; when signed in, the user's email, plan, and Hydra credit balance, a "My Projects" list (name, last updated, current node, a Resume button per project), a Save Project button that appears once a mission has been generated, and Log Out / New Mission actions. `authFetch()` is a thin wrapper that attaches the signed-in user's token to a request when one exists and behaves exactly like a plain `fetch()` otherwise — anonymous mission generation is completely unaffected by any of this.
+**Frontend** — a "Hydra Workspace" section (own nav item, reuses the existing card/button/input classes — no new visual language introduced): sign up / log in / forgot-password when signed out; when signed in, the user's email, plan, and Hydra credit balance, a "My Projects" list (name, last updated, current node, a Resume button per project), a Save Project button that appears once a mission has been generated, and Log Out / New Mission actions. Since this pass, the same auth/project state also drives a compact always-visible status in the sidebar — see [Global user & project status](#global-user--project-status-sidebar) below — so a user never has to open Workspace just to see who's signed in or what they're working on. `authFetch()` is a thin wrapper that attaches the signed-in user's token to a request when one exists and behaves exactly like a plain `fetch()` otherwise — anonymous mission generation is completely unaffected by any of this.
 
-**Auth method**: email + password only, no magic link. Supabase's own hosted Auth handles signup/login/logout/session refresh — `index.html` calls `supabase.auth.signUp/signInWithPassword/signOut/getSession/onAuthStateChange` directly; nothing about that flow goes through Hydra's own backend, so there's no server-side auth code to review beyond *verifying* the resulting token in `request-context.js`.
+**Auth method**: email + password only, no magic link. Supabase's own hosted Auth handles signup/login/logout/session refresh/password recovery — `index.html` calls `supabase.auth.signUp/signInWithPassword/signOut/getSession/onAuthStateChange/resetPasswordForEmail/updateUser` directly; nothing about that flow goes through Hydra's own backend, so there's no server-side auth code to review beyond *verifying* the resulting token in `request-context.js`.
+
+## Password recovery
+
+"Forgot password?" on the login form starts the standard Supabase recovery flow, entirely client-side:
+
+1. The user enters their email and Hydra calls `resetPasswordForEmail(email, { redirectTo: <this same page> })`. The UI shows the same message either way — *"If an account exists for that email, we've sent a password reset link"* — regardless of whether that email actually has an account. This is deliberate: nothing in the response should let a visitor learn which emails are registered.
+2. Supabase emails the link through the same custom SMTP (Resend) connection configured above — no second email provider, no separate template system.
+3. Clicking it returns the user to `hydracompass.com` (the Site URL/Redirect URL configured in Setting up Supabase) with a recovery session Supabase's own client parses automatically, firing a `PASSWORD_RECOVERY` auth event that `index.html` already listens for.
+4. Hydra shows a "Set New Password" form instead of treating this as a normal sign-in — a `PASSWORD_RECOVERY` session is real but shouldn't silently log someone in.
+5. On submit, `updateUser({ password })` sets the new password, the temporary recovery session is signed out, and the user lands back on a normal login screen with "Password updated — please log in." — matching sign-up-then-login as two distinct, deliberate steps rather than an invisible auto-login.
+6. An expired or already-used link redirects back with an error instead of a session; Hydra detects that and shows an explicit "This password reset link is invalid or has expired" state with a way back to the login form, rather than a broken or confusing screen.
+
+No new table, no new backend endpoint — Supabase Auth owns password storage and the recovery email entirely; this is UI plus already-existing Auth calls.
+
+## Global user & project status (sidebar)
+
+Two small, compact pieces of state now live in the sidebar — reusing an element that already existed there rather than adding a second one:
+
+- **User status** (`.sidebar-footer .user-pill` — this element was already present, previously hardcoded to "Explorer" / "Free · Active" and wired to nothing): shows the signed-in user's display name if one is ever collected (no sign-up field for it exists yet, so this currently always falls through to email) or "Guest" with "Sign In / Create Account" when signed out, and plan + Hydra credit balance when signed in (`Free · 0 Hydra Credits`). Clicking it opens Hydra Workspace either way. It never shows a Supabase user id, access token, or any other technical identifier.
+- **Current project status** (the sidebar block that used to show "Missions: 2,841" and "Navigators: 1,204" — see the next section for why those are gone): shows the actively open project's name and `Node X of Y`, appearing the moment a project is saved or resumed and disappearing on New Mission or log out. It's a mirror of the same `ACTIVE_PROJECT_ID`/`PIPE_LEVEL` state Hydra Workspace already tracks, not a second source of truth — updating one updates both.
+
+## Removed: fake sidebar statistics
+
+The sidebar previously showed "Missions: 2,841" (an animated counter hardcoded to fake-count-up to a fixed target on every page load) and "Navigators: 1,204" (a static string with no logic behind it at all) — neither was backed by real data. Both are removed; that space is now the Current Project status described above. The `UTC` clock beside them was real (a live clock) and is unchanged.
+
+## Frontend configuration: `/api/config`
+
+`index.html` no longer hardcodes a Supabase project URL or anon key. Previously it did — two `const` values near the bottom of the file — which meant every new code delivery either had to ship with real production values baked in (fragile: nothing stops a future edit from reverting them) or ship with placeholders that had to be manually re-pasted after every deploy.
+
+Instead, `api/config.js` is a new, narrowly-scoped endpoint that returns exactly:
+```json
+{ "supabaseUrl": "...", "supabaseAnonKey": "...", "configured": true }
+```
+reading the same `SUPABASE_URL`/`SUPABASE_ANON_KEY` env vars already set in Vercel for the backend. `index.html` fetches this once on load and initializes the Supabase client from the response instead of a hardcoded value. Both values are meant to be public — this is Supabase's own public-key model, the same anon key that was already visible in the page source before this change — so this endpoint isn't hiding a secret, it's just moving where the two already-public values come from. **It must never be extended to return anything else** — no `OPENAI_API_KEY`, no Resend credentials, no `service_role` key, nothing beyond those three fields; `api/config.js`'s own header comment says so explicitly, and the regression tests (`config: response has ONLY supabaseUrl/supabaseAnonKey/configured`) enforce it.
+
+Practical effect: set `SUPABASE_URL`/`SUPABASE_ANON_KEY` once in Vercel and never touch them again — a future code ZIP's `index.html` ships with no real values in it at all and picks up whatever's already configured. If `/api/config` is unreachable or reports `configured: false` (env vars unset, or a network hiccup), `index.html` disables Sign Up/Log In with a plain "Accounts are temporarily unavailable" message and leaves everything else — including anonymous mission generation, which never depends on this endpoint — working normally.
 
 ## Setting up Supabase (step by step)
 
@@ -92,13 +128,7 @@ Do this once per environment (a single project is fine for a first production la
    - Sender name: `Hydra Compass`
 
    This one setting covers every transactional email Supabase Auth sends — signup confirmation and password reset today; email-change and other security notices too, the moment any of those flows gets exercised (they use the same SMTP config, no extra setup). Magic-link email is templated but irrelevant here since that sign-in method isn't exposed. You can customize the actual email copy/branding under Authentication → Email Templates, still delivered through the same Resend connection.
-7. **Get your credentials**: Settings → API gives you the Project URL and the `anon`/`public` key. Use exactly these two for the Vercel env vars below — never the `service_role` key, which must never leave the Supabase dashboard.
-8. **Point the frontend at your project**: `index.html`'s Supabase client is a hardcoded client-side constant (there's no build step to inject an env var into a static HTML file), near the bottom of the file:
-   ```js
-   const HYDRA_SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-   const HYDRA_SUPABASE_KEY = "YOUR-ANON-PUBLIC-KEY";
-   ```
-   Replace both with your real project's values before deploying — this is the one manual edit required outside of environment variables, and it's the same anon key from step 7, safe to embed because RLS is what actually protects the data behind it.
+7. **Get your credentials, and set them as Vercel env vars**: Settings → API gives you the Project URL and the `anon`/`public` key. Set these as `SUPABASE_URL` and `SUPABASE_ANON_KEY` in Vercel (see the env var table below) — never the `service_role` key, which must never leave the Supabase dashboard. **As of this pass, that's the only place these values need to be set.** `index.html` no longer hardcodes them — see [Frontend configuration: `/api/config`](#frontend-configuration-apiconfig) below for why, and why that means future code updates no longer require re-entering them.
 
 ## Bug found & fixed while verifying the production flow
 
@@ -117,6 +147,7 @@ api/generate-mission.js
 api/refine.js
 api/projects.js
 api/projects/[id].js
+api/config.js
 api/lib/request-context.js
 api/lib/entitlements.js
 api/lib/orchestrator.js
@@ -137,11 +168,12 @@ api/lib/supabase-server.js
 ## Commands / actions to deploy
 
 **Dashboard path:**
-1. Complete the Supabase setup above (schema, SMTP, redirect URLs) and update the two hardcoded `HYDRA_SUPABASE_URL`/`HYDRA_SUPABASE_KEY` constants in `index.html`.
+1. Complete the Supabase setup above (schema, SMTP, redirect URLs).
 2. Push this folder to a GitHub repo.
 3. Vercel dashboard → Add New → Project → import that repo. No framework preset needed — Vercel auto-detects the static `index.html` plus the `/api` folder as serverless functions.
 4. Settings → Environment Variables → add `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (and optionally the two model overrides) for the Production environment.
 5. Deploy. If you added an env var *after* the first deploy, hit Redeploy so it picks it up.
+6. That's it — no file needs hand-editing with real values. A future code update can ship `index.html` as-is and it will pick up whatever's already in these env vars.
 
 **CLI path (equivalent):**
 ```bash
@@ -163,9 +195,9 @@ vercel --prod
 
 ## What was already verified before you deploy
 
-`test/e2e-test.js` drives a real headless browser against the real `index.html` and the real `api/*.js` handlers — the only things mocked are the outbound call to `api.openai.com` and a stand-in Supabase (see below); no real API keys or live Supabase project are needed to run it. It's now up to 63 passing checks, including the original mission-generation coverage plus the full required account flow driven through the real UI: sign up → new profile defaults to the free plan → generate a mission → save it as a project → advance a node (which PATCHes saved progress) → log out → log back in → the project is still there → resume it → the saved node position comes back correctly — and a separate check that an anonymous visitor can still generate a mission end-to-end and never even sees the Save Project button. `test/smoke-test.js` separately checks the backend pipeline's edge cases in isolation (missing input, no API key, upstream error, plus the new `/api/projects` and `/api/projects/:id` handlers — auth gating, save, list, resume, patch) — 20 passing checks. Run either with `node test/smoke-test.js` / `node test/e2e-test.js` (the latter needs `playwright` installed and a Chromium binary — see its header comment).
+`test/e2e-test.js` drives a real headless browser against the real `index.html` and the real `api/*.js` handlers — the only things mocked are the outbound call to `api.openai.com` and a stand-in Supabase (see below); no real API keys or live Supabase project are needed to run it. It's now up to 88 passing checks: the original mission-generation coverage; the full required account flow driven through the real UI (sign up → new profile defaults to the free plan → generate a mission → save it as a project → advance a node, which PATCHes saved progress → log out → log back in → the project is still there → resume it → the saved node position comes back correctly); an anonymous visitor generating a mission end-to-end without ever seeing the Save Project button; the full password-recovery flow (request-reset gives an identical response for a real and a nonexistent email, landing via a valid recovery link shows Set New Password, the new password works for a subsequent login, an expired/invalid link shows an explicit error state); the global sidebar status reflecting sign-in/sign-out and plan/credits without opening Workspace; the current-project sidebar status appearing, updating as nodes advance, clearing on New Mission, and restoring correctly after Resume; and configuration safety (a forced-unconfigured `/api/config` disables Sign Up/Log In gracefully while anonymous generation keeps working, and `/api/config`'s response never carries anything beyond the three public fields). `test/smoke-test.js` separately checks the backend pipeline's edge cases in isolation (missing input, no API key, upstream error, the `/api/projects` and `/api/projects/:id` handlers, and `/api/config`'s exact response shape) — 27 passing checks. Run either with `node test/smoke-test.js` / `node test/e2e-test.js` (the latter needs `playwright` installed and a Chromium binary — see its header comment).
 
-**How Supabase is tested without a live project**: `test/supabase-mock.js` is a small in-memory stand-in for Supabase Auth and PostgREST, served by `test/dev-server.js` at the same local origin. On the server side, `api/lib/supabase-server.js`'s real `fetch()` calls hit it directly. On the browser side, `test/supabase-stub.js` replaces the real `@supabase/supabase-js` CDN script (swapped in only when `dev-server.js` serves `index.html` locally — the actual deployed file always loads the real library) with a lookalike client backed by real same-origin HTTP calls to that same mock. Nothing about `index.html`'s real code path changes between test and production; only the far end (an actual Supabase project) is faked, the same way `api.openai.com` is faked for OpenAI.
+**How Supabase is tested without a live project**: `test/supabase-mock.js` is a small in-memory stand-in for Supabase Auth and PostgREST, served by `test/dev-server.js` at the same local origin — including the password-recovery endpoints (`/auth/v1/recover`, `PUT /auth/v1/user`) and a test-only `/__test__/recovery-token` route that hands the test runner a token the same way a person would read one out of their inbox (never exposed to the browser side of the flow). On the server side, `api/lib/supabase-server.js`'s real `fetch()` calls hit it directly. On the browser side, `test/supabase-stub.js` replaces the real `@supabase/supabase-js` CDN script (swapped in only when `dev-server.js` serves `index.html` locally — the actual deployed file always loads the real library) with a lookalike client backed by real same-origin HTTP calls to that same mock, including the one piece of real supabase-js behavior that recovery depends on — parsing an `access_token`/`type=recovery` URL fragment on load. Nothing about `index.html`'s real code path changes between test and production; only the far end (an actual Supabase project) is faked, the same way `api.openai.com` is faked for OpenAI.
 
 What this can't prove without your real key: that OpenAI itself returns good orchestration for real prompts. That's what the 5 missions below are for.
 

@@ -16,11 +16,13 @@ const crypto = require('crypto');
 let users; // email -> { id, email, password }
 let tokens; // access_token -> user id
 let tables; // { profiles: [...], projects: [...], missions: [...] }
+let recoveryTokensByEmail; // email -> the most recent recovery access_token issued for it
 
 function resetSupabaseMock() {
   users = new Map();
   tokens = new Map();
   tables = { profiles: [], projects: [], missions: [] };
+  recoveryTokensByEmail = new Map();
 }
 resetSupabaseMock();
 
@@ -75,8 +77,45 @@ function authSignIn(body) {
 function authGetUser(authHeader) {
   const userId = userIdForToken(authHeader);
   if (!userId) return { status: 401, body: { message: 'invalid or expired token' } };
-  const email = [...users.values()].find((u) => u.id === userId);
-  return { status: 200, body: { id: userId, email: email ? email.email : null } };
+  const record = [...users.values()].find((u) => u.id === userId);
+  return { status: 200, body: { id: userId, email: record ? record.email : null } };
+}
+
+// resetPasswordForEmail(). Mirrors the real endpoint's non-revealing shape —
+// it responds the same way whether or not the email is on file — while
+// stashing an issued recovery token for the TEST RUNNER (not the browser)
+// to retrieve via getRecoveryToken(), simulating "reading the reset email"
+// out of band. A real deployment sends this token only inside the emailed
+// link; nothing here exposes it to the browser side of the flow.
+function authRequestRecovery(body) {
+  const email = (body && body.email || '').trim().toLowerCase();
+  const record = users.get(email);
+  if (record) {
+    const access_token = issueToken(record.id);
+    recoveryTokensByEmail.set(email, access_token);
+  }
+  return { status: 200, body: {} };
+}
+
+// Test-only accessor — NOT part of Supabase's real API surface. Lets the
+// e2e test fetch the token a real user would only see inside their email.
+function getRecoveryToken(email) {
+  return recoveryTokensByEmail.get((email || '').trim().toLowerCase()) || null;
+}
+
+// updateUser({password}) — PUT /auth/v1/user in real Supabase. Requires a
+// valid (here: any valid, including a recovery) access token.
+function authUpdateUser(authHeader, body) {
+  const userId = userIdForToken(authHeader);
+  if (!userId) return { status: 401, body: { message: 'invalid or expired token' } };
+  const record = [...users.values()].find((u) => u.id === userId);
+  if (!record) return { status: 401, body: { message: 'invalid or expired token' } };
+  const password = body && body.password;
+  if (!password || password.length < 6) {
+    return { status: 400, body: { message: 'Password should be at least 6 characters.' } };
+  }
+  record.password = password;
+  return { status: 200, body: { id: userId, email: record.email } };
 }
 
 // -- PostgREST-alike ------------------------------------------------------
@@ -143,4 +182,7 @@ function restRequest(table, method, qs, body) {
   return { status: 405, body: { message: 'method not supported in mock: ' + method } };
 }
 
-module.exports = { resetSupabaseMock, authSignUp, authSignIn, authGetUser, restRequest };
+module.exports = {
+  resetSupabaseMock, authSignUp, authSignIn, authGetUser, restRequest,
+  authRequestRecovery, authUpdateUser, getRecoveryToken,
+};

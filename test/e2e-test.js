@@ -311,6 +311,20 @@ async function run() {
     const plan = await page.locator('#ws-plan').textContent();
     ok('Workspace: new profile defaults to free plan', plan.trim() === 'free');
 
+    // GLOBAL USER STATUS (sidebar) — mirrors the same auth state, not a
+    // second state system; should reflect the signed-in user without
+    // opening/scrolling to Hydra Workspace.
+    await page.waitForFunction(
+      () => (document.getElementById('sidebar-user-plan').textContent || '').includes('Hydra Credits'),
+      { timeout: 5000 }
+    );
+    const sidebarName = await page.locator('#sidebar-user-name').textContent();
+    ok('Global status: sidebar shows the signed-in user (email, no display name set)', sidebarName.trim() === email);
+    const sidebarPlan = await page.locator('#sidebar-user-plan').textContent();
+    ok('Global status: sidebar shows plan + Hydra Credits', sidebarPlan.trim() === 'Free · 0 Hydra Credits', `got "${sidebarPlan.trim()}"`);
+    const sidebarUuidLeak = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sidebarName + sidebarPlan);
+    ok('Global status: no Supabase UUID shown in the sidebar', !sidebarUuidLeak);
+
     // CREATE MISSION
     await page.fill('#mission-input', TEST_MISSIONS[3].idea);
     await page.click('#btn-generate');
@@ -326,18 +340,32 @@ async function run() {
     let resumeButtons = await page.locator('.ws-resume-btn').count();
     ok('Workspace: saved project appears in My Projects', resumeButtons === 1, `got ${resumeButtons}`);
 
+    // CURRENT PROJECT STATUS (sidebar) — real, not invented; appears the
+    // moment a project is actively open.
+    await page.waitForSelector('#sidebar-project-status:not([hidden])', { timeout: 5000 });
+    const sbProjectNodeAfterSave = await page.locator('#sb-project-node').textContent();
+    ok('Current project status: shows Node 1 of 5 right after saving', sbProjectNodeAfterSave.trim() === 'Node 1 of 5', `got "${sbProjectNodeAfterSave.trim()}"`);
+
     // SAVE CURRENT PROGRESS — advancing a node PATCHes the open project.
     const patchPromise = page.waitForRequest((req) => /\/api\/projects\/[^/]+$/.test(req.url()) && req.method() === 'PATCH');
     await page.click('#pipe-next');
     const patchReq = await patchPromise;
     const patchBody = JSON.parse(patchReq.postData());
     ok('Workspace: advancing a node saves progress via PATCH', patchBody.current_node === 2);
+    const sbProjectNodeAfterAdvance = await page.locator('#sb-project-node').textContent();
+    ok('Current project status: node count updates as the workflow progresses', sbProjectNodeAfterAdvance.trim() === 'Node 2 of 5', `got "${sbProjectNodeAfterAdvance.trim()}"`);
 
     // LOG OUT
     await page.click('#ws-logout-btn');
     await page.waitForSelector('#ws-signed-out:not([hidden])', { timeout: 5000 });
     const projectsHiddenAfterLogout = await page.getAttribute('#ws-projects-card', 'hidden');
     ok('Workspace: logging out hides the projects panel', projectsHiddenAfterLogout !== null);
+    const sidebarNameLoggedOut = await page.locator('#sidebar-user-name').textContent();
+    ok('Global status: signing out shows Guest', sidebarNameLoggedOut.trim() === 'Guest');
+    const sidebarPlanLoggedOut = await page.locator('#sidebar-user-plan').textContent();
+    ok('Global status: signing out shows Sign In / Create Account', sidebarPlanLoggedOut.trim() === 'Sign In / Create Account');
+    const projectStatusHiddenAfterLogout = await page.getAttribute('#sidebar-project-status', 'hidden');
+    ok('Current project status: hides on log out', projectStatusHiddenAfterLogout !== null);
 
     // LOG BACK IN
     await page.fill('#ws-email', email);
@@ -360,7 +388,118 @@ async function run() {
     const activeNode = await page.locator('.pipe-node.active').getAttribute('data-n');
     ok('Workspace: resume restores the last workflow step (node 2)', activeNode === '2', `got node ${activeNode}`);
 
+    // CURRENT PROJECT STATUS restores correctly after Resume.
+    await page.waitForSelector('#sidebar-project-status:not([hidden])', { timeout: 5000 });
+    const sbProjectNodeAfterResume = await page.locator('#sb-project-node').textContent();
+    ok('Current project status: restores correctly after Resume', sbProjectNodeAfterResume.trim() === 'Node 2 of 5', `got "${sbProjectNodeAfterResume.trim()}"`);
+
+    // NEW MISSION (sidebar quick action) clears the current-project status
+    // without duplicating the full Workspace UI.
+    await page.click('#sb-link-new-mission');
+    await page.waitForFunction(
+      () => document.getElementById('sidebar-project-status').hidden === true,
+      { timeout: 5000 }
+    );
+    ok('Current project status: New Mission (sidebar quick action) clears it', true);
+
     ok('Workspace: no console errors across the full auth/save/resume flow', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
+  }
+
+  // ---- Password recovery: LOGIN -> FORGOT PASSWORD -> ENTER EMAIL ->
+  //      SUPABASE PASSWORD RECOVERY EMAIL -> USER CLICKS LINK -> RETURN TO
+  //      HYDRACOMPASS.COM -> HYDRA DETECTS RECOVERY SESSION -> SET NEW
+  //      PASSWORD -> PASSWORD UPDATED -> USER CAN SIGN IN. A headless test
+  //      can't click a real email link, so it fetches the recovery token
+  //      out-of-band the same way a person would read it from their inbox
+  //      (test/supabase-mock.js's getRecoveryToken, exposed only via the
+  //      test-only /__test__/recovery-token route) and lands on the same
+  //      URL shape a real link would produce.
+  {
+    consoleErrors.length = 0;
+    await fetch(`${BASE}/__test__/reset`, { method: 'POST' });
+    const email = `hydra.recovery.${Date.now()}@example.com`;
+    const oldPassword = 'original-pw-1';
+    const newPassword = 'brand-new-pw-2';
+
+    // Create the account directly (signup itself is already covered above).
+    await fetch(`${BASE}/auth/v1/signup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: oldPassword }),
+    });
+
+    await page.goto(BASE, { waitUntil: 'load' });
+    await page.click('[data-target="workspace"]');
+
+    // No account enumeration: request a reset for both a real and a fake
+    // email and confirm the exact same message both times.
+    await page.click('#ws-forgot-link');
+    await page.waitForSelector('#ws-forgot-form:not([hidden])', { timeout: 5000 });
+    // Wait for the settled message specifically (not just "some text"),
+    // since the handler briefly shows "Sending…" first — a plain
+    // non-empty check can race and catch that transient state instead. For
+    // the second request, also wait for the transient "Sending…" state
+    // first, to prove this is a fresh response and not a stale read of the
+    // first request's already-matching text.
+    const FORGOT_DONE = () => (document.getElementById('ws-forgot-msg').textContent || '').indexOf('sent a password reset link') !== -1;
+
+    await page.fill('#ws-forgot-email', email);
+    await page.click('#ws-forgot-send-btn');
+    await page.waitForFunction(FORGOT_DONE, { timeout: 5000 });
+    const msgForRealEmail = (await page.locator('#ws-forgot-msg').textContent()).trim();
+
+    // The final message is identical either way, so polling for text alone
+    // can't tell "already done" from "done again" — wait for the actual
+    // second network round trip instead, which the local mock completes
+    // fast enough that the transient "Sending…" text is unobservable by
+    // polling.
+    const secondRecoverResponse = page.waitForResponse((r) => r.url().includes('/auth/v1/recover') && r.request().method() === 'POST');
+    await page.fill('#ws-forgot-email', 'definitely-not-an-account@example.com');
+    await page.click('#ws-forgot-send-btn');
+    await secondRecoverResponse;
+    await page.waitForFunction(FORGOT_DONE, { timeout: 5000 });
+    const msgForFakeEmail = (await page.locator('#ws-forgot-msg').textContent()).trim();
+
+    ok('Password recovery: request response is identical for a real and a nonexistent email (no account enumeration)', msgForRealEmail === msgForFakeEmail && msgForRealEmail.length > 0);
+
+    // Simulate "the user clicked the emailed link" by fetching the token
+    // that request generated and landing on the URL shape it points to.
+    const tokenRes = await fetch(`${BASE}/__test__/recovery-token?email=${encodeURIComponent(email)}`);
+    const { token } = await tokenRes.json();
+    ok('Password recovery: a recovery token was actually issued for the real email', !!token);
+
+    // A real password-reset link opens in a genuinely fresh navigation (the
+    // user's email client opens a new tab); simulate that with a
+    // cache-busting query param — a same-document URL that differs only by
+    // hash would just fire 'hashchange' on the already-open page instead of
+    // reloading it, which would never re-run the recovery-detection script.
+    await page.goto(`${BASE}/?r=${Date.now()}#access_token=${token}&type=recovery`, { waitUntil: 'load' });
+    await page.waitForSelector('#ws-recovery-form:not([hidden])', { timeout: 5000 });
+    ok('Password recovery: landing via a valid recovery link shows the Set New Password form', true);
+
+    await page.fill('#ws-recovery-password', newPassword);
+    await page.click('#ws-recovery-submit-btn');
+    await page.waitForSelector('#ws-signed-out:not([hidden])', { timeout: 5000 });
+    const postRecoveryMsg = (await page.locator('#ws-auth-msg').textContent()).trim();
+    ok('Password recovery: password updated -> signed back out to a normal login screen', postRecoveryMsg.toLowerCase().includes('password updated'));
+
+    // The user can now sign in with the NEW password.
+    await page.fill('#ws-email', email);
+    await page.fill('#ws-password', newPassword);
+    await page.click('#ws-login-btn');
+    await page.waitForSelector('#ws-signed-in:not([hidden])', { timeout: 5000 });
+    ok('Password recovery: user can subsequently log in with the new password', true);
+    await page.click('#ws-logout-btn');
+    await page.waitForSelector('#ws-signed-out:not([hidden])', { timeout: 5000 });
+
+    // Expired/invalid link -> explicit error state, not a broken form.
+    await page.goto(`${BASE}/?r=${Date.now()}#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`, { waitUntil: 'load' });
+    await page.waitForSelector('#ws-recovery-invalid:not([hidden])', { timeout: 5000 });
+    ok('Password recovery: an expired/invalid link shows an explicit error state', true);
+    await page.click('#ws-recovery-invalid-back-btn');
+    await page.waitForSelector('#ws-signed-out:not([hidden])', { timeout: 5000 });
+    ok('Password recovery: "Back to Log In" returns to the normal login form', true);
+
+    ok('Password recovery: no console errors', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
   }
 
   // ---- Anonymous generation still works with no account at all (the
@@ -378,6 +517,54 @@ async function run() {
     const saveBtnHidden = await page.getAttribute('#ws-save-btn', 'hidden');
     ok('Anonymous visitor never sees the Save Project button', saveBtnHidden !== null);
     ok('Anonymous generation: no console errors', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
+  }
+
+  // ---- Configuration safety: a missing/unconfigured /api/config must
+  //      disable accounts gracefully WITHOUT breaking anonymous mission
+  //      generation. Run last since it deliberately breaks Supabase config
+  //      for the rest of this server's lifetime. ----
+  {
+    consoleErrors.length = 0;
+    await fetch(`${BASE}/__test__/force-config`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supabaseUrl: '', supabaseAnonKey: '', configured: false }),
+    });
+    await setMock({ mode: 'success', mission: TEST_MISSIONS[1].mission });
+    await page.goto(BASE, { waitUntil: 'load' });
+
+    await page.click('[data-target="workspace"]');
+    await page.waitForFunction(
+      () => (document.getElementById('ws-auth-msg').textContent || '').length > 0,
+      { timeout: 5000 }
+    );
+    const configMsg = (await page.locator('#ws-auth-msg').textContent()).trim();
+    ok('Configuration safety: missing config shows a graceful "accounts unavailable" message', /unavailable/i.test(configMsg), `got "${configMsg}"`);
+    const signupDisabled = await page.getAttribute('#ws-signup-btn', 'disabled');
+    const loginDisabled = await page.getAttribute('#ws-login-btn', 'disabled');
+    ok('Configuration safety: Sign Up / Log In are disabled rather than silently failing', signupDisabled !== null && loginDisabled !== null);
+
+    // Anonymous mission generation must still work with zero Supabase config.
+    await page.fill('#mission-input', TEST_MISSIONS[1].idea);
+    await page.click('#btn-generate');
+    await page.waitForSelector('#mission-output:not([hidden])', { timeout: 5000 });
+    const nodeCount = await page.locator('#node-timeline .node-row').count();
+    ok('Configuration safety: anonymous generation still works with no Supabase config at all', nodeCount === TEST_MISSIONS[1].mission.steps.length, `got ${nodeCount}`);
+    ok('Configuration safety: no console errors', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
+
+    // Confirm /api/config itself, independent of the override above, never
+    // carries anything beyond the two public values + configured.
+    const configRes = await fetch(`${BASE}/__test__/clear-force-config`, { method: 'POST' }).then(() => fetch(`${BASE}/api/config`));
+    const configBody = await configRes.json();
+    const configKeys = Object.keys(configBody).sort();
+    ok('Configuration safety: /api/config exposes only supabaseUrl/supabaseAnonKey/configured', configKeys.join(',') === 'configured,supabaseAnonKey,supabaseUrl');
+    ok('Configuration safety: /api/config never leaks OPENAI_API_KEY', !JSON.stringify(configBody).includes(process.env.OPENAI_API_KEY || 'local-e2e-test-key-not-real'));
+
+    // Existing routes still work after the override is cleared.
+    const genRes = await fetch(`${BASE}/api/generate-mission`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idea: 'sanity check after config override' }),
+    });
+    ok('Configuration safety: /api/generate-mission still works after clearing the override', genRes.ok);
   }
 
   await browser.close();

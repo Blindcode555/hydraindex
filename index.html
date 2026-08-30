@@ -2605,19 +2605,34 @@ box-shadow:
    
 
     <div class="nav-divider"></div>
+    <!-- Real current-project status (replaces two hardcoded/demo platform
+         counters — "Missions: 2,841" and "Navigators: 1,204" — that were
+         pure decoration with no backing data). Hidden until a project is
+         actually open (just Saved, or Resumed); see updateSidebarStatus()
+         in the Workspace script block. -->
+    <div class="sidebar-stats" id="sidebar-project-status" hidden>
+      <div class="row"><span>Project</span><span class="v" id="sb-project-name">—</span></div>
+      <div class="row"><span>Progress</span><span class="v" id="sb-project-node">—</span></div>
+    </div>
     <div class="sidebar-stats">
-      <div class="row"><span>Missions</span><span class="v" id="ctr-missions">2,841</span></div>
-      <div class="row"><span>Navigators</span><span class="v">1,204</span></div>
       <div class="row"><span>UTC</span><span class="v" id="utc-clock">00:00:00</span></div>
     </div>
 
     <div class="sidebar-footer">
-      <div class="user-pill">
-        <div class="avatar">EX</div>
+      <!-- Global user status. Wired to the same auth state as Hydra
+           Workspace (renderAuthState/loadWorkspace) rather than a second,
+           parallel state system — see updateSidebarStatus(). Clicking it
+           opens Hydra Workspace, signed in or not. -->
+      <div class="user-pill" id="sidebar-user-pill" title="Open Hydra Workspace">
+        <div class="avatar" id="sidebar-avatar">?</div>
         <div class="user-info">
-          <div class="user-name">Explorer</div>
-          <div class="user-plan">Free · Active</div>
+          <div class="user-name" id="sidebar-user-name">Guest</div>
+          <div class="user-plan" id="sidebar-user-plan">Sign In / Create Account</div>
         </div>
+      </div>
+      <div id="sidebar-quick-actions" hidden style="display:flex;gap:10px;margin-top:8px;padding:0 10px;font-family:var(--fm);font-size:10px;letter-spacing:0.04em;">
+        <a href="#" id="sb-link-new-mission" style="color:var(--text-dim);text-decoration:none;">New Mission</a>
+        <a href="#" id="sb-link-logout" style="color:var(--text-dim);text-decoration:none;">Log Out</a>
       </div>
     </div>
   </aside>
@@ -2940,7 +2955,45 @@ box-shadow:
               <button class="exec-btn primary" id="ws-signup-btn">Sign Up</button>
               <button class="exec-btn" id="ws-login-btn">Log In</button>
             </div>
+            <div style="margin-top:10px;">
+              <a href="#" id="ws-forgot-link" style="font-size:12px;color:var(--text-dim);text-decoration:underline;">Forgot password?</a>
+            </div>
             <div id="ws-auth-msg" style="margin-top:10px;font-size:12px;color:var(--text-mid);"></div>
+          </div>
+
+          <!-- Forgot Password: request a reset link. Always shows the same
+               generic message regardless of whether the email is on file —
+               resetPasswordForEmail() doesn't reveal that either, and
+               neither should this UI. -->
+          <div id="ws-forgot-form" hidden>
+            <div class="section-desc" style="margin-bottom:10px;">Enter your account email and we'll send a password reset link.</div>
+            <div class="mission-input-wrap"><input type="email" id="ws-forgot-email" class="mission-input" placeholder="Email" maxlength="120"/></div>
+            <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+              <button class="exec-btn primary" id="ws-forgot-send-btn">Send Reset Link</button>
+              <button class="exec-btn" id="ws-forgot-back-btn">Back to Log In</button>
+            </div>
+            <div id="ws-forgot-msg" style="margin-top:10px;font-size:12px;color:var(--text-mid);"></div>
+          </div>
+
+          <!-- Set New Password: shown only when Supabase's own client tells
+               us this page load carries a valid PASSWORD_RECOVERY session
+               (i.e. the user arrived via a real, unexpired reset link). -->
+          <div id="ws-recovery-form" hidden>
+            <div class="section-desc" style="margin-bottom:10px;">Choose a new password for your account.</div>
+            <div class="mission-input-wrap"><input type="password" id="ws-recovery-password" class="mission-input" placeholder="New password (min 6 characters)" maxlength="120"/></div>
+            <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+              <button class="exec-btn primary" id="ws-recovery-submit-btn">Set New Password</button>
+            </div>
+            <div id="ws-recovery-msg" style="margin-top:10px;font-size:12px;color:var(--text-mid);"></div>
+          </div>
+
+          <!-- Expired/invalid recovery link — Supabase redirects back with
+               an error rather than a session in this case. -->
+          <div id="ws-recovery-invalid" hidden>
+            <div style="font-size:13px;color:var(--text-mid);">This password reset link is invalid or has expired.</div>
+            <div style="margin-top:12px;">
+              <button class="exec-btn primary" id="ws-recovery-invalid-back-btn">Back to Log In</button>
+            </div>
           </div>
 
           <div id="ws-signed-in" hidden>
@@ -3800,16 +3853,6 @@ function wireCompass(){
   tick(); setInterval(tick, 1000);
 })();
 
-(function animateCounter(){
-  var el=document.getElementById('ctr-missions'); if(!el) return;
-  var target=2841, current=target-80, step=3;
-  var t=setInterval(function(){
-    current=Math.min(current+step, target);
-    el.textContent=current.toLocaleString();
-    if(current>=target) clearInterval(t);
-  }, 22);
-})();
-
 /* ═══════════════════ AMBIENT BACKGROUND ═══════════════════ */
 (function(){
   var canvas = document.getElementById('ambient-bg');
@@ -4578,15 +4621,29 @@ if (askInput && askBtn && askOutput) {
 
 
 <script>
-const HYDRA_SUPABASE_URL = "https://xzeiaszxuusaysbtngxr.supabase.co";
-const HYDRA_SUPABASE_KEY = "sb_publishable_aPyHS-qU9XoKdurXaYv31w_D89wEzXq";
+/* ═══════════════════ SUPABASE CLIENT (config fetched, not hardcoded) ═══════════════════
+   The project URL and anon/publishable key used to be hardcoded here, which
+   meant every new code delivery either had to ship with real production
+   values baked in (fragile — nothing stops a future edit from reverting
+   them) or ship with placeholders that had to be manually pasted back in
+   after every deploy. Neither is necessary: both values are meant to be
+   public (Supabase's own public-key model — the anon key is safe in a
+   browser as long as Row Level Security is correctly configured, which
+   supabase/schema.sql does), so they're fetched from /api/config instead,
+   which just echoes back the SUPABASE_URL / SUPABASE_ANON_KEY already set
+   once in Vercel. Set them there once and this file never needs touching
+   again.
 
-const hydraDB = window.supabase.createClient(
-  HYDRA_SUPABASE_URL,
-  HYDRA_SUPABASE_KEY
-);
+   If /api/config is unreachable, or Supabase isn't configured in this
+   environment, hydraDB stays null and every account/workspace feature
+   below disables itself gracefully (see wireWorkspace()). Mission
+   generation never depends on hydraDB and is completely unaffected either
+   way — that separation is deliberate and load-bearing.
+*/
+let hydraDB = null;
 
 async function saveHydraMission(input) {
+  if (!hydraDB) return false; // Supabase not configured — this log is best-effort and never blocking
   const { error } = await hydraDB
     .from("Missions")
     .insert([{ input }]);
@@ -4601,17 +4658,22 @@ async function saveHydraMission(input) {
 }
 
 /* ═══════════════════ HYDRA WORKSPACE (Supabase Auth + Projects) ═══════════════════
-   Sign up / log in / log out, "My Projects", Save Project, Resume, and Save
-   Current Progress. Reuses the existing hydraDB client above for auth only —
+   Sign up / log in / log out, password recovery, "My Projects", Save
+   Project, Resume, and Save Current Progress — plus the compact global
+   user/project status in the sidebar, which mirrors this same state rather
+   than tracking its own. Reuses the hydraDB client above for auth only —
    projects/missions data goes through /api/projects (never queried directly
    from the browser), so the backend's own request-context.js is what
    actually verifies who's calling, and Row Level Security is what actually
    enforces who can read/write what.
 */
-let CURRENT_USER = null;      // the signed-in Supabase user object, or null
-let ACTIVE_PROJECT_ID = null; // the project currently open in the builder, if any
+let CURRENT_USER = null;        // the signed-in Supabase user object, or null
+let ACTIVE_PROJECT_ID = null;   // the project currently open in the builder, if any
+let ACTIVE_PROJECT_TITLE = null; // title of that project, for the sidebar status only
+let IN_PASSWORD_RECOVERY = false; // true once a PASSWORD_RECOVERY session is detected
 
 async function getAccessToken() {
+  if (!hydraDB) return null;
   try {
     const { data } = await hydraDB.auth.getSession();
     return data && data.session ? data.session.access_token : null;
@@ -4637,10 +4699,72 @@ function updateWorkspaceButtons() {
   if (saveBtn) saveBtn.hidden = !(CURRENT_USER && typeof CURRENT_MISSION !== 'undefined' && CURRENT_MISSION);
 }
 
+// Compact "CURRENT PROJECT" status in the sidebar (replaces the old
+// hardcoded Missions/Navigators counters). Hidden whenever no project is
+// actively open — it never invents a project, it just mirrors ACTIVE_PROJECT_ID.
+function updateSidebarProjectStatus() {
+  const wrap = document.getElementById('sidebar-project-status');
+  if (!wrap) return;
+  if (ACTIVE_PROJECT_ID && ACTIVE_PROJECT_TITLE) {
+    wrap.hidden = false;
+    const nameEl = document.getElementById('sb-project-name');
+    const nodeEl = document.getElementById('sb-project-node');
+    if (nameEl) nameEl.textContent = ACTIVE_PROJECT_TITLE;
+    if (nodeEl) {
+      const level = typeof PIPE_LEVEL !== 'undefined' ? PIPE_LEVEL : 1;
+      const count = typeof PIPE_COUNT !== 'undefined' ? PIPE_COUNT : 1;
+      nodeEl.textContent = 'Node ' + level + ' of ' + count;
+    }
+  } else {
+    wrap.hidden = true;
+  }
+}
+
+// Global "USER" status pill in the sidebar footer — same visual element
+// that already existed (previously hardcoded to "Explorer" / "Free ·
+// Active"), now driven by the same auth state as the Workspace panel
+// instead of a second state system.
+function updateSidebarUserStatus() {
+  const avatarEl = document.getElementById('sidebar-avatar');
+  const nameEl = document.getElementById('sidebar-user-name');
+  const planEl = document.getElementById('sidebar-user-plan');
+  const quickActions = document.getElementById('sidebar-quick-actions');
+  if (!avatarEl || !nameEl || !planEl) return;
+
+  if (CURRENT_USER) {
+    // display_name isn't collected by any sign-up UI today, so this falls
+    // through to email — the moment a display-name field exists, showing
+    // it takes no further change here.
+    const label = (CURRENT_USER.user_metadata && CURRENT_USER.user_metadata.display_name) || CURRENT_USER.email || 'Account';
+    nameEl.textContent = label;
+    avatarEl.textContent = label.slice(0, 2).toUpperCase();
+    const planText = (document.getElementById('ws-plan') && document.getElementById('ws-plan').textContent) || 'free';
+    const creditsText = (document.getElementById('ws-credits') && document.getElementById('ws-credits').textContent) || '0';
+    planEl.textContent = cap(planText) + ' · ' + creditsText + ' Hydra Credits';
+    if (quickActions) quickActions.hidden = false;
+  } else {
+    nameEl.textContent = 'Guest';
+    avatarEl.textContent = '?';
+    planEl.textContent = 'Sign In / Create Account';
+    if (quickActions) quickActions.hidden = true;
+  }
+}
+
+function startNewMission() {
+  ACTIVE_PROJECT_ID = null;
+  ACTIVE_PROJECT_TITLE = null;
+  updateSidebarProjectStatus();
+  const input = document.getElementById('mission-input');
+  if (input) { input.value = ''; input.focus(); }
+  const consoleSec = document.getElementById('console');
+  if (consoleSec) consoleSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 // Best-effort "Save Current Progress" — fires only when a project is
 // actively open (just Saved, or Resumed). Failures are swallowed on purpose:
 // losing a progress-marker update should never interrupt the workflow.
 function maybeSaveProgress(node) {
+  updateSidebarProjectStatus(); // keep "Node X of Y" current regardless of save outcome
   if (!ACTIVE_PROJECT_ID) return;
   authFetch('/api/projects/' + ACTIVE_PROJECT_ID, {
     method: 'PATCH',
@@ -4692,6 +4816,7 @@ async function loadWorkspace() {
       const creditsEl = document.getElementById('ws-credits');
       if (planEl) planEl.textContent = data.profile.plan || 'free';
       if (creditsEl) creditsEl.textContent = String(data.profile.hydra_credit_balance != null ? data.profile.hydra_credit_balance : 0);
+      updateSidebarUserStatus(); // plan/credits just changed — keep the sidebar pill in sync
     }
     renderProjectsList(data.projects || []);
   } catch (e) {
@@ -4709,8 +4834,10 @@ async function resumeProject(projectId) {
       return;
     }
     ACTIVE_PROJECT_ID = data.project.id;
+    ACTIVE_PROJECT_TITLE = data.project.title || data.project.original_idea || 'Project';
     renderMissionData(data.mission.workflow_json, data.project.original_idea);
     setPipeLevel(data.project.current_node || 1);
+    updateSidebarProjectStatus();
     const sec = document.getElementById('mission-output');
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
@@ -4737,6 +4864,8 @@ async function saveCurrentMission() {
     if (!res.ok) throw new Error('save_failed');
     const data = await res.json();
     ACTIVE_PROJECT_ID = data.project.id;
+    ACTIVE_PROJECT_TITLE = data.project.title;
+    updateSidebarProjectStatus();
     if (msg) msg.textContent = 'Saved as "' + data.project.title + '".';
     loadWorkspace();
   } catch (e) {
@@ -4746,29 +4875,59 @@ async function saveCurrentMission() {
   }
 }
 
+// The 5 mutually-exclusive states of #ws-auth-card. Centralized here so
+// sign-in, sign-out, forgot-password, and password-recovery all go through
+// one place rather than each toggling `hidden` on panels themselves.
+function showAuthPanel(which) {
+  const panels = {
+    'signed-out': 'ws-signed-out',
+    'forgot': 'ws-forgot-form',
+    'recovery': 'ws-recovery-form',
+    'recovery-invalid': 'ws-recovery-invalid',
+    'signed-in': 'ws-signed-in',
+  };
+  Object.keys(panels).forEach(function (key) {
+    const el = document.getElementById(panels[key]);
+    if (el) el.hidden = (key !== which);
+  });
+}
+
 function renderAuthState(session) {
   CURRENT_USER = (session && session.user) || null;
-  const signedOutEl = document.getElementById('ws-signed-out');
-  const signedInEl = document.getElementById('ws-signed-in');
   const projectsCard = document.getElementById('ws-projects-card');
   const emailEl = document.getElementById('ws-user-email');
 
   if (CURRENT_USER) {
-    if (signedOutEl) signedOutEl.hidden = true;
-    if (signedInEl) signedInEl.hidden = false;
+    showAuthPanel('signed-in');
     if (projectsCard) projectsCard.hidden = false;
     if (emailEl) emailEl.textContent = CURRENT_USER.email || '—';
     loadWorkspace();
   } else {
-    if (signedOutEl) signedOutEl.hidden = false;
-    if (signedInEl) signedInEl.hidden = true;
+    showAuthPanel('signed-out');
     if (projectsCard) projectsCard.hidden = true;
     ACTIVE_PROJECT_ID = null;
+    ACTIVE_PROJECT_TITLE = null;
+    updateSidebarProjectStatus();
   }
   updateWorkspaceButtons();
+  updateSidebarUserStatus();
+}
+
+// Dispatches every Supabase auth event to the one state function above,
+// except PASSWORD_RECOVERY — a user who just clicked a reset-password email
+// link has a real, valid session, but showing them "signed in" would be
+// wrong; they need to set a new password first (see handleSetNewPassword).
+function handleAuthStateChange(event, session) {
+  if (event === 'PASSWORD_RECOVERY') {
+    IN_PASSWORD_RECOVERY = true;
+    showAuthPanel('recovery');
+    return;
+  }
+  renderAuthState(session);
 }
 
 async function handleSignUp() {
+  if (!hydraDB) return;
   const email = (document.getElementById('ws-email').value || '').trim();
   const password = document.getElementById('ws-password').value || '';
   const msg = document.getElementById('ws-auth-msg');
@@ -4779,6 +4938,7 @@ async function handleSignUp() {
 }
 
 async function handleLogIn() {
+  if (!hydraDB) return;
   const email = (document.getElementById('ws-email').value || '').trim();
   const password = document.getElementById('ws-password').value || '';
   const msg = document.getElementById('ws-auth-msg');
@@ -4789,8 +4949,48 @@ async function handleLogIn() {
 }
 
 async function handleLogOut() {
+  if (!hydraDB) return;
   ACTIVE_PROJECT_ID = null;
+  ACTIVE_PROJECT_TITLE = null;
   await hydraDB.auth.signOut();
+}
+
+// "Forgot password?" — always shows the same message whether or not the
+// email is actually on file. resetPasswordForEmail() doesn't tell us that
+// distinction either, and this UI must not invent one (no account
+// enumeration via response differences).
+async function handleForgotPassword() {
+  if (!hydraDB) return;
+  const email = (document.getElementById('ws-forgot-email').value || '').trim();
+  const msg = document.getElementById('ws-forgot-msg');
+  if (!email) { if (msg) msg.textContent = 'Enter your email address.'; return; }
+  if (msg) msg.textContent = 'Sending…';
+  try {
+    await hydraDB.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname });
+  } catch (e) {
+    // Deliberately ignored — see the comment above the message below.
+  }
+  if (msg) msg.textContent = "If an account exists for that email, we've sent a password reset link.";
+}
+
+// The recovery-link landing flow: set a new password on the temporary
+// recovery session, then sign that session out and return to a normal
+// login screen — "SET NEW PASSWORD -> PASSWORD UPDATED -> USER CAN SIGN IN"
+// as distinct steps, rather than silently leaving them logged in.
+async function handleSetNewPassword() {
+  if (!hydraDB) return;
+  const password = document.getElementById('ws-recovery-password').value || '';
+  const msg = document.getElementById('ws-recovery-msg');
+  if (password.length < 6) { if (msg) msg.textContent = 'Password must be at least 6 characters.'; return; }
+  if (msg) msg.textContent = 'Updating password…';
+  const { error } = await hydraDB.auth.updateUser({ password: password });
+  if (error) { if (msg) msg.textContent = error.message; return; }
+
+  IN_PASSWORD_RECOVERY = false;
+  await hydraDB.auth.signOut();
+  showAuthPanel('signed-out');
+  const outMsg = document.getElementById('ws-auth-msg');
+  if (outMsg) outMsg.textContent = 'Password updated — please log in.';
 }
 
 function wireWorkspace() {
@@ -4799,29 +4999,90 @@ function wireWorkspace() {
   const logoutBtn = document.getElementById('ws-logout-btn');
   const saveBtn = document.getElementById('ws-save-btn');
   const newMissionBtn = document.getElementById('ws-new-mission-btn');
+  const forgotLink = document.getElementById('ws-forgot-link');
+  const forgotSendBtn = document.getElementById('ws-forgot-send-btn');
+  const forgotBackBtn = document.getElementById('ws-forgot-back-btn');
+  const recoverySubmitBtn = document.getElementById('ws-recovery-submit-btn');
+  const recoveryInvalidBackBtn = document.getElementById('ws-recovery-invalid-back-btn');
+  const sidebarPill = document.getElementById('sidebar-user-pill');
+  const sbNewMission = document.getElementById('sb-link-new-mission');
+  const sbLogout = document.getElementById('sb-link-logout');
 
   if (signupBtn) signupBtn.addEventListener('click', handleSignUp);
   if (loginBtn) loginBtn.addEventListener('click', handleLogIn);
   if (logoutBtn) logoutBtn.addEventListener('click', handleLogOut);
   if (saveBtn) saveBtn.addEventListener('click', saveCurrentMission);
-  if (newMissionBtn) newMissionBtn.addEventListener('click', function () {
-    ACTIVE_PROJECT_ID = null;
-    const input = document.getElementById('mission-input');
-    if (input) { input.value = ''; input.focus(); }
-    const consoleSec = document.getElementById('console');
-    if (consoleSec) consoleSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (newMissionBtn) newMissionBtn.addEventListener('click', startNewMission);
+  if (forgotLink) forgotLink.addEventListener('click', function (e) { e.preventDefault(); showAuthPanel('forgot'); });
+  if (forgotSendBtn) forgotSendBtn.addEventListener('click', handleForgotPassword);
+  if (forgotBackBtn) forgotBackBtn.addEventListener('click', function () { showAuthPanel('signed-out'); });
+  if (recoverySubmitBtn) recoverySubmitBtn.addEventListener('click', handleSetNewPassword);
+  if (recoveryInvalidBackBtn) recoveryInvalidBackBtn.addEventListener('click', function () { showAuthPanel('signed-out'); });
+
+  // These never touch hydraDB, so they work identically whether or not
+  // Supabase is configured — clicking the sidebar pill always opens
+  // Workspace, signed in or not.
+  if (sidebarPill) sidebarPill.addEventListener('click', function () {
+    const navItem = document.querySelector('.nav-item[data-target="workspace"]');
+    if (navItem) navItem.click();
   });
+  if (sbNewMission) sbNewMission.addEventListener('click', function (e) { e.preventDefault(); startNewMission(); });
+  if (sbLogout) sbLogout.addEventListener('click', function (e) { e.preventDefault(); handleLogOut(); });
 
   const pwField = document.getElementById('ws-password');
   if (pwField) pwField.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') handleLogIn();
   });
 
-  hydraDB.auth.onAuthStateChange(function (_event, session) { renderAuthState(session); });
-  hydraDB.auth.getSession().then(function (res) { renderAuthState(res.data.session); });
+  updateSidebarUserStatus();
+  updateSidebarProjectStatus();
+
+  if (!hydraDB) {
+    // Supabase isn't configured in this environment (missing/unreachable
+    // /api/config, or SUPABASE_URL/SUPABASE_ANON_KEY not set in Vercel).
+    // Disable auth UI gracefully — anonymous mission generation is
+    // untouched, since generateMission() never depends on hydraDB.
+    showAuthPanel('signed-out');
+    [signupBtn, loginBtn, forgotSendBtn].forEach(function (btn) { if (btn) btn.disabled = true; });
+    const msg = document.getElementById('ws-auth-msg');
+    if (msg) msg.textContent = 'Accounts are temporarily unavailable. You can still generate missions without signing in.';
+    return;
+  }
+
+  // A broken/expired recovery link redirects back with an error rather than
+  // a session — detect it before doing anything else, and don't let the
+  // normal initial-session check below override that explanation.
+  const recoveryLinkFailed = /error=access_denied|error_code=otp_expired/.test(window.location.hash)
+    || /error=access_denied|error_code=otp_expired/.test(window.location.search);
+  if (recoveryLinkFailed) {
+    showAuthPanel('recovery-invalid');
+    history.replaceState(null, '', window.location.pathname);
+  } else {
+    hydraDB.auth.getSession().then(function (res) { renderAuthState(res.data.session); });
+  }
+
+  hydraDB.auth.onAuthStateChange(handleAuthStateChange);
 }
 
-wireWorkspace();
+(async function initHydraSupabase() {
+  let config = null;
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) config = await res.json();
+  } catch (e) {
+    console.warn('Hydra: /api/config unreachable — accounts disabled, mission generation unaffected', e);
+  }
+  if (config && config.configured && config.supabaseUrl && config.supabaseAnonKey &&
+      window.supabase && typeof window.supabase.createClient === 'function') {
+    try {
+      hydraDB = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+    } catch (e) {
+      console.warn('Hydra: failed to initialize Supabase client', e);
+      hydraDB = null;
+    }
+  }
+  wireWorkspace();
+})();
 </script>
 </body>
 </html>

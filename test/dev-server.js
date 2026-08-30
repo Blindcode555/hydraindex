@@ -36,6 +36,11 @@ const supabaseMock = require('./supabase-mock');
 const ROOT = path.join(__dirname, '..');
 
 let MOCK = { mode: 'success', mission: null, refined: null };
+// Test-only override for GET /api/config, so a test can prove the frontend
+// degrades gracefully when Supabase isn't configured — without needing a
+// second server process with different env vars. null = use the real
+// api/config.js handler (the normal path for every other test).
+let CONFIG_OVERRIDE = null;
 
 const realFetch = global.fetch;
 global.fetch = async (url, opts) => {
@@ -75,6 +80,7 @@ const generateMission = require(path.join(ROOT, 'api', 'generate-mission.js'));
 const refine = require(path.join(ROOT, 'api', 'refine.js'));
 const projects = require(path.join(ROOT, 'api', 'projects.js'));
 const projectById = require(path.join(ROOT, 'api', 'projects', '[id].js'));
+const config = require(path.join(ROOT, 'api', 'config.js'));
 
 function adaptRes(res) {
   res.status = (code) => { res.statusCode = code; return res; };
@@ -114,6 +120,16 @@ const server = http.createServer(async (req, res) => {
       res.status(200).json({ ok: true });
       return;
     }
+    if (req.method === 'POST' && pathname === '/__test__/force-config') {
+      CONFIG_OVERRIDE = await readBody(req);
+      res.status(200).json({ ok: true });
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/__test__/clear-force-config') {
+      CONFIG_OVERRIDE = null;
+      res.status(200).json({ ok: true });
+      return;
+    }
     if (req.method === 'POST' && pathname === '/api/generate-mission') {
       req.body = await readBody(req);
       await generateMission(req, res);
@@ -134,6 +150,21 @@ const server = http.createServer(async (req, res) => {
       await projectById(req, res);
       return;
     }
+    if (req.method === 'GET' && pathname === '/api/config') {
+      if (CONFIG_OVERRIDE) { res.status(200).json(CONFIG_OVERRIDE); return; }
+      await config(req, res);
+      return;
+    }
+
+    // -- Test-only: fetch a recovery token as if reading it out of the
+    //    password-reset email (see supabase-mock.js's authRequestRecovery).
+    //    Not part of Supabase's real API surface.
+    if (req.method === 'GET' && pathname === '/__test__/recovery-token') {
+      const email = new URLSearchParams(qs).get('email');
+      const token = supabaseMock.getRecoveryToken(email);
+      res.status(200).json({ token });
+      return;
+    }
 
     // -- Mock Supabase Auth --------------------------------------------
     if (req.method === 'POST' && pathname === '/auth/v1/signup') {
@@ -152,8 +183,20 @@ const server = http.createServer(async (req, res) => {
       res.status(204).end();
       return;
     }
+    if (req.method === 'POST' && pathname === '/auth/v1/recover') {
+      const body = await readBody(req);
+      const result = supabaseMock.authRequestRecovery(body);
+      res.status(result.status).json(result.body);
+      return;
+    }
     if (req.method === 'GET' && pathname === '/auth/v1/user') {
       const result = supabaseMock.authGetUser(req.headers.authorization);
+      res.status(result.status).json(result.body);
+      return;
+    }
+    if (req.method === 'PUT' && pathname === '/auth/v1/user') {
+      const body = await readBody(req);
+      const result = supabaseMock.authUpdateUser(req.headers.authorization, body);
       res.status(result.status).json(result.body);
       return;
     }

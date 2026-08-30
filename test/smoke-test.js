@@ -15,6 +15,7 @@ const genMissionPath = path.join(__dirname, '..', 'api', 'generate-mission.js');
 const refinePath = path.join(__dirname, '..', 'api', 'refine.js');
 const projectsPath = path.join(__dirname, '..', 'api', 'projects.js');
 const projectByIdPath = path.join(__dirname, '..', 'api', 'projects', '[id].js');
+const configPath = path.join(__dirname, '..', 'api', 'config.js');
 const { registry } = require(path.join(__dirname, '..', 'api', '_shared.js'));
 const { getRequestContext } = require(path.join(__dirname, '..', 'api', 'lib', 'request-context.js'));
 const supabaseMock = require('./supabase-mock');
@@ -265,6 +266,30 @@ async function run() {
       await projectById(req, res);
       ok('projects/[id]: unauthenticated GET -> 401', res._status === 401);
     }
+  }
+
+  // 16-18. /api/config — must expose exactly the two public Supabase values
+  // + configured, nothing else, ever (see api/config.js's own header comment
+  // for why this must never grow into a generic env-var passthrough).
+  {
+    const getConfig = require(configPath);
+
+    const req = { method: 'GET' };
+    const res = fakeRes();
+    await getConfig(req, res);
+    ok('config: GET -> 200', res._status === 200);
+    ok('config: configured reflects the test SUPABASE_URL/SUPABASE_ANON_KEY being set', res._json.configured === true);
+    ok('config: supabaseUrl matches the configured env var', res._json.supabaseUrl === process.env.SUPABASE_URL);
+    ok('config: supabaseAnonKey matches the configured env var', res._json.supabaseAnonKey === process.env.SUPABASE_ANON_KEY);
+    const keys = Object.keys(res._json).sort();
+    ok('config: response has ONLY supabaseUrl/supabaseAnonKey/configured — no other fields', keys.join(',') === 'configured,supabaseAnonKey,supabaseUrl');
+    const serialized = JSON.stringify(res._json);
+    ok('config: no OPENAI_API_KEY leak', !serialized.includes(process.env.OPENAI_API_KEY));
+
+    const postReq = { method: 'POST' };
+    const postRes = fakeRes();
+    await getConfig(postReq, postRes);
+    ok('config: POST -> 405', postRes._status === 405);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
