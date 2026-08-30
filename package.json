@@ -1,0 +1,9 @@
+{
+  "name": "hydra-compass",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hydra Compass — static Mission Builder UI with an OpenAI-orchestrated backend (Vercel serverless functions in /api).",
+  "engines": {
+    "node": ">=18"
+  }
+}
