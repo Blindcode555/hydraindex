@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const context = getRequestContext(req);
+  const context = await getRequestContext(req);
 
   const limitKey = context.userId || getClientIp(req);
   if (!rateLimit(`refine:${limitKey}`, { limit: 30, windowMs: 60 * 60 * 1000 })) {

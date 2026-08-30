@@ -4,12 +4,41 @@
 // Run with: node test/smoke-test.js
 
 process.env.OPENAI_API_KEY = 'test-key';
+// Must be set before api/lib/supabase-server.js is first required (it reads
+// these once, at module load) — everything below transitively requires it
+// via request-context.js.
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://mock.supabase.test';
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'mock-anon-key';
 
 const path = require('path');
 const genMissionPath = path.join(__dirname, '..', 'api', 'generate-mission.js');
 const refinePath = path.join(__dirname, '..', 'api', 'refine.js');
+const projectsPath = path.join(__dirname, '..', 'api', 'projects.js');
+const projectByIdPath = path.join(__dirname, '..', 'api', 'projects', '[id].js');
 const { registry } = require(path.join(__dirname, '..', 'api', '_shared.js'));
 const { getRequestContext } = require(path.join(__dirname, '..', 'api', 'lib', 'request-context.js'));
+const supabaseMock = require('./supabase-mock');
+
+// Backs the same in-memory Supabase mock used by dev-server.js/e2e tests,
+// but routed through global.fetch directly instead of a real HTTP server —
+// enough to exercise api/lib/supabase-server.js's request-building for real
+// (headers, query strings, response parsing) without a live project.
+function supabaseFetchMock(url, opts) {
+  const u = new URL(url);
+  const method = (opts && opts.method) || 'GET';
+  if (u.pathname === '/auth/v1/user') {
+    const headers = (opts && opts.headers) || {};
+    const result = supabaseMock.authGetUser(headers.Authorization || headers.authorization);
+    return { ok: result.status < 400, status: result.status, json: async () => result.body, text: async () => JSON.stringify(result.body) };
+  }
+  const m = /^\/rest\/v1\/([^/]+)$/.exec(u.pathname);
+  if (m) {
+    const body = opts && opts.body ? JSON.parse(opts.body) : undefined;
+    const result = supabaseMock.restRequest(m[1], method, u.search.slice(1), body);
+    return { ok: result.status < 400, status: result.status, json: async () => result.body, text: async () => JSON.stringify(result.body) };
+  }
+  throw new Error('supabaseFetchMock: unhandled URL ' + url);
+}
 
 let passed = 0, failed = 0;
 function ok(label, cond) {
@@ -35,7 +64,7 @@ async function run() {
   // 0. Architecture seam sanity: request context resolves without any auth
   //    system wired up, and never fabricates an identity from thin air.
   {
-    const ctx = getRequestContext(fakeReq({}));
+    const ctx = await getRequestContext(fakeReq({}));
     ok('request-context: anonymous by default, no invented user id', ctx.userId === null && ctx.isAuthenticated === false && ctx.plan === 'anonymous');
   }
 
@@ -145,6 +174,97 @@ async function run() {
     const res = fakeRes();
     await refine(req, res);
     ok('refine: GET -> 405', res._status === 405);
+  }
+
+  // 8-14. /api/projects and /api/projects/[id] — the account-gated
+  // persistence layer added for Supabase. Backed by the same in-memory
+  // mock as dev-server.js/e2e-test.js, routed through global.fetch so
+  // api/lib/supabase-server.js's real request-building runs unmocked.
+  {
+    global.fetch = supabaseFetchMock;
+    supabaseMock.resetSupabaseMock();
+    const createProjects = require(projectsPath);
+    const projectById = require(projectByIdPath);
+
+    const signup = supabaseMock.authSignUp({ email: 'smoke@example.com', password: 'hunter22' });
+    const token = signup.body.access_token;
+
+    function projReq(method, body, opts) {
+      return {
+        method,
+        url: '/api/projects' + (opts && opts.id ? '/' + opts.id : ''),
+        headers: Object.assign({}, opts && opts.auth ? { authorization: 'Bearer ' + token } : {}),
+        body,
+      };
+    }
+
+    // 8. Unauthenticated -> 401
+    {
+      const req = projReq('GET', undefined, {});
+      const res = fakeRes();
+      await createProjects(req, res);
+      ok('projects: unauthenticated GET -> 401', res._status === 401 && res._json.error === 'auth_required');
+    }
+
+    // 9. Authenticated, no projects yet
+    {
+      const req = projReq('GET', undefined, { auth: true });
+      const res = fakeRes();
+      await createProjects(req, res);
+      ok('projects: authenticated GET -> 200 with empty list + profile', res._status === 200 && Array.isArray(res._json.projects) && res._json.projects.length === 0 && res._json.profile.plan === 'free');
+    }
+
+    // 10. POST missing mission -> 400
+    {
+      const req = projReq('POST', { idea: 'launch a podcast' }, { auth: true });
+      const res = fakeRes();
+      await createProjects(req, res);
+      ok('projects: POST missing mission -> 400', res._status === 400 && res._json.error === 'missing_input');
+    }
+
+    // 11. POST valid -> creates project + mission snapshot ("Save Project")
+    let savedProjectId = null;
+    {
+      const mission = { title: 'Podcast Launch', steps: [{ step: 1, title: 'X' }], output: { title: 'Done', desc: 'z', items: ['z'] } };
+      const req = projReq('POST', { idea: 'launch a podcast', type: 'content', level: 'explorer', budget: 'free', mission }, { auth: true });
+      const res = fakeRes();
+      await createProjects(req, res);
+      savedProjectId = res._json && res._json.project && res._json.project.id;
+      ok('projects: POST valid -> 200 with project + mission rows', res._status === 200 && !!savedProjectId && res._json.mission.workflow_json.title === 'Podcast Launch');
+    }
+
+    // 12. GET /api/projects now lists the saved project
+    {
+      const req = projReq('GET', undefined, { auth: true });
+      const res = fakeRes();
+      await createProjects(req, res);
+      ok('projects: saved project now appears in list', res._json.projects.length === 1 && res._json.projects[0].id === savedProjectId);
+    }
+
+    // 13. GET /api/projects/:id -> what "Resume" needs
+    {
+      const req = projReq('GET', undefined, { auth: true, id: savedProjectId });
+      const res = fakeRes();
+      await projectById(req, res);
+      ok('projects/[id]: GET -> project + latest mission for resume', res._status === 200 && res._json.project.id === savedProjectId && res._json.mission.workflow_json.title === 'Podcast Launch');
+    }
+
+    // 14. PATCH /api/projects/:id -> "Save Current Progress"
+    {
+      const req = projReq('PATCH', { current_node: 3 }, { auth: true, id: savedProjectId });
+      const res = fakeRes();
+      await projectById(req, res);
+      ok('projects/[id]: PATCH updates current_node', res._status === 200 && res._json.project.current_node === 3);
+    }
+
+    // 15. Unauthenticated /api/projects/:id -> 401 (RLS is the real backstop
+    //     in production; this just confirms the handler itself gates too)
+    {
+      const req = projReq('GET', undefined, { id: savedProjectId });
+      const res = fakeRes();
+      await projectById(req, res);
+      ok('projects/[id]: unauthenticated GET -> 401', res._status === 401);
+    }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

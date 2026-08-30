@@ -16,12 +16,22 @@
 //   mode: 'upstream_error' -> OpenAI call returns ok:false (proves fallback)
 //   mode: 'network_fail'   -> fetch itself throws (proves fallback)
 //   refined: string        -> what /api/refine's mocked call returns
-
+//
+// Also stands up a mock Supabase (Auth + PostgREST) so the sign up -> log in
+// -> save project -> log out -> log back in -> resume flow can be exercised
+// with real HTTP calls on both the server side (api/lib/supabase-server.js)
+// and the browser side (see test/supabase-stub.js, swapped in for the real
+// CDN script only when this server serves index.html). SUPABASE_URL is
+// pointed at this same server so there is exactly one mock backing both.
+const PORT = process.env.PORT || 8787;
 process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'local-e2e-test-key-not-real';
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || ('http://localhost:' + PORT);
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'local-e2e-test-anon-key';
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const supabaseMock = require('./supabase-mock');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -59,9 +69,12 @@ global.fetch = async (url, opts) => {
   return realFetch(url, opts);
 };
 
-// Load handlers AFTER the fetch shim is installed.
+// Load handlers AFTER the fetch shim is installed AND after SUPABASE_URL is
+// set above (api/lib/supabase-server.js reads it once, at require time).
 const generateMission = require(path.join(ROOT, 'api', 'generate-mission.js'));
 const refine = require(path.join(ROOT, 'api', 'refine.js'));
+const projects = require(path.join(ROOT, 'api', 'projects.js'));
+const projectById = require(path.join(ROOT, 'api', 'projects', '[id].js'));
 
 function adaptRes(res) {
   res.status = (code) => { res.statusCode = code; return res; };
@@ -82,14 +95,23 @@ function readBody(req) {
   });
 }
 
+const REAL_SUPABASE_CDN_TAG = '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>';
+const LOCAL_SUPABASE_STUB_TAG = '<script src="/__test__/supabase-stub.js"></script>';
+
 const server = http.createServer(async (req, res) => {
   adaptRes(res);
   const pathname = req.url.split('?')[0];
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
 
   try {
     if (req.method === 'POST' && pathname === '/__test__/mock') {
       MOCK = await readBody(req);
       res.status(200).json({ ok: true, mock: MOCK.mode });
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/__test__/reset') {
+      supabaseMock.resetSupabaseMock();
+      res.status(200).json({ ok: true });
       return;
     }
     if (req.method === 'POST' && pathname === '/api/generate-mission') {
@@ -102,8 +124,63 @@ const server = http.createServer(async (req, res) => {
       await refine(req, res);
       return;
     }
+    if (pathname === '/api/projects') {
+      req.body = await readBody(req);
+      await projects(req, res);
+      return;
+    }
+    if (/^\/api\/projects\/[^/]+$/.test(pathname)) {
+      req.body = await readBody(req);
+      await projectById(req, res);
+      return;
+    }
+
+    // -- Mock Supabase Auth --------------------------------------------
+    if (req.method === 'POST' && pathname === '/auth/v1/signup') {
+      const body = await readBody(req);
+      const result = supabaseMock.authSignUp(body);
+      res.status(result.status).json(result.body);
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/auth/v1/token') {
+      const body = await readBody(req);
+      const result = supabaseMock.authSignIn(body);
+      res.status(result.status).json(result.body);
+      return;
+    }
+    if (req.method === 'POST' && pathname === '/auth/v1/logout') {
+      res.status(204).end();
+      return;
+    }
+    if (req.method === 'GET' && pathname === '/auth/v1/user') {
+      const result = supabaseMock.authGetUser(req.headers.authorization);
+      res.status(result.status).json(result.body);
+      return;
+    }
+
+    // -- Mock Supabase PostgREST ----------------------------------------
+    const restMatch = /^\/rest\/v1\/([^/?]+)$/.exec(pathname);
+    if (restMatch) {
+      const body = await readBody(req);
+      const result = supabaseMock.restRequest(restMatch[1], req.method, qs, body);
+      res.status(result.status).json(result.body);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/__test__/supabase-stub.js') {
+      const js = fs.readFileSync(path.join(__dirname, 'supabase-stub.js'));
+      res.setHeader('Content-Type', 'application/javascript');
+      res.end(js);
+      return;
+    }
     if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
-      const html = fs.readFileSync(path.join(ROOT, 'index.html'));
+      let html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+      // Swap the real Supabase CDN script for the local stub — see
+      // test/supabase-stub.js for why (no internet egress in this
+      // sandbox, and no live Supabase project to talk to locally anyway).
+      // The deployed index.html is never touched; this rewrite happens
+      // only in this response.
+      html = html.replace(REAL_SUPABASE_CDN_TAG, LOCAL_SUPABASE_STUB_TAG);
       res.setHeader('Content-Type', 'text/html');
       res.end(html);
       return;
@@ -114,6 +191,5 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8787;
 server.listen(PORT, () => console.log('Hydra local test server on http://localhost:' + PORT));
 module.exports = server;

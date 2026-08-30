@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
   }
 
   // 1. AUTH / USER CONTEXT (future: real accounts) --------------------------
-  const context = getRequestContext(req);
+  const context = await getRequestContext(req);
 
   // Rate-limit key prefers a verified user id once auth exists; today that's
   // always null, so this falls back to IP exactly as before.

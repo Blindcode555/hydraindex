@@ -1,36 +1,58 @@
-// Resolves "who is calling" for a request. This is the ONLY place that should
-// ever change when real authentication is added — every other file (rate
-// limiting, entitlements, mission persistence, orchestration) reads the
-// { userId, isAuthenticated, plan } shape this returns and doesn't care how
-// it was determined.
+// Resolves "who is calling" for a request. This is the file that changes
+// when real authentication is added — every other file (rate limiting,
+// entitlements, mission persistence, orchestration) reads the
+// { userId, isAuthenticated, plan, accessToken } shape this returns and
+// doesn't care how it was determined.
 //
-// TODAY: there is no authentication anywhere in this project (verified by
-// inspection — no login flow, no session/JWT handling, nothing in Supabase
-// beyond an anonymous insert). So this always resolves to an anonymous
-// context. It does NOT trust any client-supplied identity header/cookie —
-// a request cannot claim to be a given user_id until a real verification
-// step exists here, because doing otherwise would let anyone impersonate
-// anyone else's saved missions/usage the moment persistence is wired up.
+// Auth is now real, via Supabase: a request is authenticated by sending
+// `Authorization: Bearer <supabase access token>` (the frontend does this
+// automatically once a user is signed in). That token is verified against
+// Supabase Auth itself (never decoded/trusted locally) before any userId is
+// accepted — a request can never simply claim to be a given user. No
+// identity header is ever trusted directly, and no service-role key is used
+// anywhere in this file or the module it depends on (supabase-server.js).
 //
-// LATER, when accounts exist (e.g. Supabase Auth):
-//   1. Read the session cookie or `Authorization: Bearer <jwt>` header.
-//   2. Verify it server-side (e.g. supabase.auth.getUser(token)).
-//   3. Set userId/isAuthenticated/plan from that VERIFIED identity.
-// Nothing downstream needs to change to support that — they already key off
-// context.userId when present and fall back to anonymous behavior when not.
+// A request with no token, an invalid token, or arriving before Supabase is
+// configured (SUPABASE_URL/SUPABASE_ANON_KEY unset) all resolve to the same
+// anonymous context as before Supabase existed — mission generation keeps
+// working for signed-out visitors exactly as it always has; only saving
+// projects requires a verified identity.
 
-function getRequestContext(req) {
-  // TODO(auth): replace with real session/JWT verification once accounts exist.
-  const verifiedUserId = null;
+const { verifyAccessToken, pgClient, isConfigured } = require('./supabase-server');
 
-  return {
-    userId: verifiedUserId,
-    isAuthenticated: !!verifiedUserId,
-    // Default plan for a verified-but-not-yet-billed account is 'free'; an
-    // unauthenticated visitor is 'anonymous'. Both are distinct from 'paid'
-    // so entitlements.js can treat them differently once plans exist.
-    plan: verifiedUserId ? 'free' : 'anonymous',
-  };
+const ANONYMOUS_CONTEXT = { userId: null, isAuthenticated: false, plan: 'anonymous', accessToken: null };
+
+function getBearerToken(req) {
+  const header = (req.headers && (req.headers.authorization || req.headers.Authorization)) || '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : null;
 }
 
-module.exports = { getRequestContext };
+async function getRequestContext(req) {
+  const accessToken = getBearerToken(req);
+  if (!accessToken || !isConfigured()) {
+    return { ...ANONYMOUS_CONTEXT };
+  }
+
+  const user = await verifyAccessToken(accessToken);
+  if (!user) {
+    return { ...ANONYMOUS_CONTEXT };
+  }
+
+  // Verified-but-not-yet-billed accounts default to 'free'; look up the real
+  // value from their profile, falling back to 'free' if that lookup fails
+  // for any reason (a profile read error should never break the request).
+  let plan = 'free';
+  try {
+    const profile = await pgClient(accessToken).request('profiles', {
+      query: `?id=eq.${encodeURIComponent(user.id)}&select=plan`,
+      single: true,
+    });
+    if (profile && profile.plan) plan = profile.plan;
+  } catch (e) {
+    // fall through with the 'free' default
+  }
+
+  return { userId: user.id, isAuthenticated: true, plan, accessToken };
+}
+
+module.exports = { getRequestContext, getBearerToken };

@@ -2581,6 +2581,15 @@ box-shadow:
   Ask Hydra Agent
 </li>
 
+<li class="nav-item" data-target="workspace">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+    <line x1="3" y1="9" x2="21" y2="9"></line>
+    <line x1="9" y1="21" x2="9" y2="9"></line>
+  </svg>
+  Hydra Workspace
+</li>
+
       <li class="nav-item" data-target="ranks">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9 12 2"/></svg>
         Rank System
@@ -2907,6 +2916,57 @@ box-shadow:
   </ol>
 
 </div>
+
+        <!-- ═══════════════════ WORKSPACE ═══════════════════ -->
+        <div class="section-head" id="workspace">
+          <div>
+            <div class="section-title">Hydra Workspace</div>
+            <div class="section-desc">Sign in to save missions as projects and resume where you left off.</div>
+          </div>
+        </div>
+
+        <div class="card" id="ws-auth-card">
+          <div class="card-head">
+            <div class="card-head-l">
+              <div class="card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg></div>
+              <div id="ws-auth-title">Account</div>
+            </div>
+          </div>
+
+          <div id="ws-signed-out">
+            <div class="mission-input-wrap"><input type="email" id="ws-email" class="mission-input" placeholder="Email" maxlength="120"/></div>
+            <div class="mission-input-wrap" style="margin-top:8px;"><input type="password" id="ws-password" class="mission-input" placeholder="Password (min 6 characters)" maxlength="120"/></div>
+            <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+              <button class="exec-btn primary" id="ws-signup-btn">Sign Up</button>
+              <button class="exec-btn" id="ws-login-btn">Log In</button>
+            </div>
+            <div id="ws-auth-msg" style="margin-top:10px;font-size:12px;color:var(--text-mid);"></div>
+          </div>
+
+          <div id="ws-signed-in" hidden>
+            <div style="display:flex;flex-direction:column;gap:6px;font-family:var(--fm);font-size:13px;color:var(--text-mid);">
+              <div>User: <span style="color:var(--text);" id="ws-user-email">—</span></div>
+              <div>Plan: <span style="color:var(--cyan);" id="ws-plan">—</span></div>
+              <div>Hydra Credits: <span style="color:var(--cyan);" id="ws-credits">—</span></div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+              <button class="exec-btn" id="ws-new-mission-btn">New Mission</button>
+              <button class="exec-btn" id="ws-logout-btn">Log Out</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="ws-projects-card" hidden style="margin-top:18px;">
+          <div class="card-head">
+            <div class="card-head-l"><div>Recent Projects</div></div>
+            <button class="exec-btn primary" id="ws-save-btn" hidden>Save Current Mission as Project</button>
+          </div>
+          <div id="ws-save-msg" style="font-size:12px;color:var(--text-mid);margin:8px 0 0;"></div>
+          <div id="ws-projects-list" style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
+            <div style="color:var(--text-dim);font-size:13px;">No projects yet — generate a mission and save it.</div>
+          </div>
+        </div>
+
         <!-- ═══════════════════ RANKS ═══════════════════ -->
         <div class="section-head" id="ranks">
           <div>
@@ -3388,7 +3448,11 @@ function renderMissionData(data, ideaText){
     setTimeout(function(){row.classList.add('visible');}, 60+i*80);
   });
 
-  CURRENT_MISSION={data:{steps:steps, output:data.output}, idea:idea};
+  // `raw` keeps the exact pre-normalization mission object (AI-generated or
+  // static WORKFLOWS entry) so "Save Project" can persist it verbatim and a
+  // later "Resume" can feed it straight back into renderMissionData.
+  CURRENT_MISSION={data:{steps:steps, output:data.output}, idea:idea, raw:data};
+  if (typeof updateWorkspaceButtons === 'function') updateWorkspaceButtons();
 
   tl.querySelectorAll('.btn-execute').forEach(function(btn,i){
     btn.addEventListener('click',function(e){
@@ -3429,7 +3493,7 @@ async function generateMission(){
   try {
     var base=CONFIG.API_BASE||'';
     var endpoint=base+(CONFIG.MISSION_ENDPOINT||'/api/generate-mission');
-    var res=await fetch(endpoint, {
+    var res=await authFetch(endpoint, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({idea:val, type:state.type, level:state.level, budget:state.budget})
@@ -3459,6 +3523,9 @@ function setPipeLevel(n){
   PIPE_LEVEL=Math.max(1, Math.min(n, PIPE_COUNT));
   _renderPipeNodes();
   _renderPipeStatus();
+  // "Save Current Progress": best-effort, only fires when a project is
+  // actively open (Resumed or just Saved) — a no-op otherwise.
+  if (typeof maybeSaveProgress === 'function') maybeSaveProgress(PIPE_LEVEL);
 }
 function _renderPipeNodes(){
   var wrap=document.getElementById('pipe-nodes'); if(!wrap) return;
@@ -3535,7 +3602,7 @@ async function refineExecPrompt(){
   var payload={ idea:CURRENT_STEP.idea, stepName:CURRENT_STEP.step.name, templatePrompt:CURRENT_STEP.step.prompt };
 
   try {
-    var res = await fetch(endpoint, {
+    var res = await authFetch(endpoint, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)
@@ -4456,7 +4523,7 @@ async function runHydra() {
   let steps = [];
   try {
     const endpoint = (CONFIG.API_BASE || '') + (CONFIG.MISSION_ENDPOINT || '/api/generate-mission');
-    const res = await fetch(endpoint, {
+    const res = await authFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idea: rawValue })
@@ -4511,8 +4578,8 @@ if (askInput && askBtn && askOutput) {
 
 
 <script>
-const HYDRA_SUPABASE_URL = "https://jnyrjkrvkkabryrqxkmj.supabase.co";
-const HYDRA_SUPABASE_KEY = "sb_publishable_BIpctDyaGsqHA3ZOSW-tcQ_C1_sTT2D";
+const HYDRA_SUPABASE_URL = "https://xzeiaszxuusaysbtngxr.supabase.co";
+const HYDRA_SUPABASE_KEY = "sb_publishable_aPyHS-qU9XoKdurXaYv31w_D89wEzXq";
 
 const hydraDB = window.supabase.createClient(
   HYDRA_SUPABASE_URL,
@@ -4532,6 +4599,229 @@ async function saveHydraMission(input) {
   console.log("Mission saved to Supabase");
   return true;
 }
+
+/* ═══════════════════ HYDRA WORKSPACE (Supabase Auth + Projects) ═══════════════════
+   Sign up / log in / log out, "My Projects", Save Project, Resume, and Save
+   Current Progress. Reuses the existing hydraDB client above for auth only —
+   projects/missions data goes through /api/projects (never queried directly
+   from the browser), so the backend's own request-context.js is what
+   actually verifies who's calling, and Row Level Security is what actually
+   enforces who can read/write what.
+*/
+let CURRENT_USER = null;      // the signed-in Supabase user object, or null
+let ACTIVE_PROJECT_ID = null; // the project currently open in the builder, if any
+
+async function getAccessToken() {
+  try {
+    const { data } = await hydraDB.auth.getSession();
+    return data && data.session ? data.session.access_token : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Drop-in replacement for fetch() that attaches the signed-in user's token
+// when one exists. Signed-out calls are identical to a plain fetch() — the
+// backend already treats a missing token as anonymous.
+async function authFetch(url, opts) {
+  opts = opts || {};
+  const token = await getAccessToken();
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  opts.headers = headers;
+  return fetch(url, opts);
+}
+
+function updateWorkspaceButtons() {
+  const saveBtn = document.getElementById('ws-save-btn');
+  if (saveBtn) saveBtn.hidden = !(CURRENT_USER && typeof CURRENT_MISSION !== 'undefined' && CURRENT_MISSION);
+}
+
+// Best-effort "Save Current Progress" — fires only when a project is
+// actively open (just Saved, or Resumed). Failures are swallowed on purpose:
+// losing a progress-marker update should never interrupt the workflow.
+function maybeSaveProgress(node) {
+  if (!ACTIVE_PROJECT_ID) return;
+  authFetch('/api/projects/' + ACTIVE_PROJECT_ID, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_node: node }),
+  }).catch(function () {});
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + ' hr ago';
+  return Math.round(hrs / 24) + ' d ago';
+}
+
+function renderProjectsList(projects) {
+  const list = document.getElementById('ws-projects-list');
+  if (!list) return;
+  if (!projects || !projects.length) {
+    list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;">No projects yet — generate a mission and save it.</div>';
+    return;
+  }
+  list.innerHTML = projects.map(function (p) {
+    return '<div style="border:1px solid var(--border); border-radius:var(--r10); padding:14px; background:var(--panel-2); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">' +
+      '<div>' +
+        '<div style="font-family:var(--fd); font-size:14px; color:var(--text);">' + esc(p.title) + '</div>' +
+        '<div style="font-size:12px; color:var(--text-mid); margin-top:4px;">Updated ' + esc(timeAgo(p.updated_at)) + ' · Node ' + esc(String(p.current_node || 1)) + ' · ' + esc(p.status || 'active') + '</div>' +
+      '</div>' +
+      '<button class="exec-btn primary ws-resume-btn" data-project-id="' + esc(p.id) + '">Resume</button>' +
+    '</div>';
+  }).join('');
+  list.querySelectorAll('.ws-resume-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { resumeProject(btn.dataset.projectId); });
+  });
+}
+
+async function loadWorkspace() {
+  if (!CURRENT_USER) return;
+  try {
+    const res = await authFetch('/api/projects');
+    if (!res.ok) throw new Error('projects_load_failed');
+    const data = await res.json();
+    if (data.profile) {
+      const planEl = document.getElementById('ws-plan');
+      const creditsEl = document.getElementById('ws-credits');
+      if (planEl) planEl.textContent = data.profile.plan || 'free';
+      if (creditsEl) creditsEl.textContent = String(data.profile.hydra_credit_balance != null ? data.profile.hydra_credit_balance : 0);
+    }
+    renderProjectsList(data.projects || []);
+  } catch (e) {
+    console.warn('Hydra: could not load workspace', e);
+  }
+}
+
+async function resumeProject(projectId) {
+  try {
+    const res = await authFetch('/api/projects/' + projectId);
+    if (!res.ok) throw new Error('resume_failed');
+    const data = await res.json();
+    if (!data.mission || !data.mission.workflow_json) {
+      alert('This project has no saved mission yet.');
+      return;
+    }
+    ACTIVE_PROJECT_ID = data.project.id;
+    renderMissionData(data.mission.workflow_json, data.project.original_idea);
+    setPipeLevel(data.project.current_node || 1);
+    const sec = document.getElementById('mission-output');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    alert('Could not resume this project — please try again.');
+  }
+}
+
+async function saveCurrentMission() {
+  if (!CURRENT_USER || typeof CURRENT_MISSION === 'undefined' || !CURRENT_MISSION) return;
+  const msg = document.getElementById('ws-save-msg');
+  const btn = document.getElementById('ws-save-btn');
+  if (btn) btn.disabled = true;
+  if (msg) msg.textContent = 'Saving…';
+  try {
+    const res = await authFetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idea: CURRENT_MISSION.idea,
+        type: state.type, level: state.level, budget: state.budget,
+        mission: CURRENT_MISSION.raw,
+      }),
+    });
+    if (!res.ok) throw new Error('save_failed');
+    const data = await res.json();
+    ACTIVE_PROJECT_ID = data.project.id;
+    if (msg) msg.textContent = 'Saved as "' + data.project.title + '".';
+    loadWorkspace();
+  } catch (e) {
+    if (msg) msg.textContent = 'Could not save — please try again.';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderAuthState(session) {
+  CURRENT_USER = (session && session.user) || null;
+  const signedOutEl = document.getElementById('ws-signed-out');
+  const signedInEl = document.getElementById('ws-signed-in');
+  const projectsCard = document.getElementById('ws-projects-card');
+  const emailEl = document.getElementById('ws-user-email');
+
+  if (CURRENT_USER) {
+    if (signedOutEl) signedOutEl.hidden = true;
+    if (signedInEl) signedInEl.hidden = false;
+    if (projectsCard) projectsCard.hidden = false;
+    if (emailEl) emailEl.textContent = CURRENT_USER.email || '—';
+    loadWorkspace();
+  } else {
+    if (signedOutEl) signedOutEl.hidden = false;
+    if (signedInEl) signedInEl.hidden = true;
+    if (projectsCard) projectsCard.hidden = true;
+    ACTIVE_PROJECT_ID = null;
+  }
+  updateWorkspaceButtons();
+}
+
+async function handleSignUp() {
+  const email = (document.getElementById('ws-email').value || '').trim();
+  const password = document.getElementById('ws-password').value || '';
+  const msg = document.getElementById('ws-auth-msg');
+  if (msg) msg.textContent = 'Creating account…';
+  const { data, error } = await hydraDB.auth.signUp({ email: email, password: password });
+  if (error) { if (msg) msg.textContent = error.message; return; }
+  if (msg) msg.textContent = data.session ? 'Account created — you are signed in.' : 'Check your email to confirm your account, then log in.';
+}
+
+async function handleLogIn() {
+  const email = (document.getElementById('ws-email').value || '').trim();
+  const password = document.getElementById('ws-password').value || '';
+  const msg = document.getElementById('ws-auth-msg');
+  if (msg) msg.textContent = 'Logging in…';
+  const { error } = await hydraDB.auth.signInWithPassword({ email: email, password: password });
+  if (error) { if (msg) msg.textContent = error.message; return; }
+  if (msg) msg.textContent = '';
+}
+
+async function handleLogOut() {
+  ACTIVE_PROJECT_ID = null;
+  await hydraDB.auth.signOut();
+}
+
+function wireWorkspace() {
+  const signupBtn = document.getElementById('ws-signup-btn');
+  const loginBtn = document.getElementById('ws-login-btn');
+  const logoutBtn = document.getElementById('ws-logout-btn');
+  const saveBtn = document.getElementById('ws-save-btn');
+  const newMissionBtn = document.getElementById('ws-new-mission-btn');
+
+  if (signupBtn) signupBtn.addEventListener('click', handleSignUp);
+  if (loginBtn) loginBtn.addEventListener('click', handleLogIn);
+  if (logoutBtn) logoutBtn.addEventListener('click', handleLogOut);
+  if (saveBtn) saveBtn.addEventListener('click', saveCurrentMission);
+  if (newMissionBtn) newMissionBtn.addEventListener('click', function () {
+    ACTIVE_PROJECT_ID = null;
+    const input = document.getElementById('mission-input');
+    if (input) { input.value = ''; input.focus(); }
+    const consoleSec = document.getElementById('console');
+    if (consoleSec) consoleSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  const pwField = document.getElementById('ws-password');
+  if (pwField) pwField.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') handleLogIn();
+  });
+
+  hydraDB.auth.onAuthStateChange(function (_event, session) { renderAuthState(session); });
+  hydraDB.auth.getSession().then(function (res) { renderAuthState(res.data.session); });
+}
+
+wireWorkspace();
 </script>
 </body>
 </html>

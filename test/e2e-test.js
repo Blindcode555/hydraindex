@@ -23,14 +23,15 @@ function ok(label, cond, detail) {
   else { failed++; results.push({ label, pass: false, detail }); console.error('  FAIL -', label, detail ? '(' + detail + ')' : ''); }
 }
 
-// This local harness runs with no internet egress, so Google Fonts and the
-// Supabase CDN script (both unrelated to the OpenAI integration) fail to
+// This local harness runs with no internet egress, so Google Fonts fail to
 // load here purely because of that — they load fine on a real deployment.
-// Filter that specific, known, environment-only noise out so a real
-// regression in Hydra's own code isn't lost in it.
+// (The real Supabase CDN script would fail the same way; dev-server.js
+// swaps it for a local same-origin stub — see test/supabase-stub.js — so
+// that particular gap doesn't apply here.) Filter this specific, known,
+// environment-only noise out so a real regression in Hydra's own code
+// isn't lost in it.
 const KNOWN_SANDBOX_NOISE = [
-  'ERR_TUNNEL_CONNECTION_FAILED',       // no internet egress in this sandbox (Google Fonts / Supabase CDN)
-  "reading 'createClient'",             // Supabase CDN blocked in this sandbox -> window.supabase undefined
+  'ERR_TUNNEL_CONNECTION_FAILED',       // no internet egress in this sandbox (Google Fonts)
   '404 (Not Found)',                    // no favicon.ico route on the local test server
   '502 (Bad Gateway)',                  // Chrome's own network-tab log of the DELIBERATE failure we're testing in this block — not a JS bug
 ];
@@ -278,6 +279,105 @@ async function run() {
     ok('refine.js: no console errors', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
 
     await page.screenshot({ path: path.join(__dirname, 'e2e-screenshot-refined-node.png') });
+  }
+
+  // ---- Supabase-backed workspace: the full required flow —
+  //      SIGN UP -> LOGIN -> CREATE MISSION -> SAVE PROJECT ->
+  //      SAVE CURRENT PROGRESS -> LOG OUT -> LOG BACK IN ->
+  //      SEE MY PROJECTS -> RESUME LAST WORKFLOW STEP.
+  // Backed by test/supabase-mock.js via dev-server.js (real Auth + PostgREST
+  // HTTP calls on both the browser side, through test/supabase-stub.js
+  // swapped in for the CDN script, and the server side, through
+  // api/lib/supabase-server.js) — nothing about this test bypasses the real
+  // request paths, only the far end (an actual Supabase project) is faked.
+  {
+    consoleErrors.length = 0;
+    await fetch(`${BASE}/__test__/reset`, { method: 'POST' });
+    const workspaceMission = TEST_MISSIONS[3].mission; // True Crime Podcast, 5 steps
+    await setMock({ mode: 'success', mission: workspaceMission });
+    await page.goto(BASE, { waitUntil: 'load' });
+
+    const email = `hydra.tester.${Date.now()}@example.com`;
+    const password = 'hunter22-test';
+
+    // SIGN UP
+    await page.click('[data-target="workspace"]');
+    await page.fill('#ws-email', email);
+    await page.fill('#ws-password', password);
+    await page.click('#ws-signup-btn');
+    await page.waitForSelector('#ws-signed-in:not([hidden])', { timeout: 5000 });
+    const shownEmail = await page.locator('#ws-user-email').textContent();
+    ok('Workspace: sign up logs the new user in', shownEmail.trim() === email);
+    const plan = await page.locator('#ws-plan').textContent();
+    ok('Workspace: new profile defaults to free plan', plan.trim() === 'free');
+
+    // CREATE MISSION
+    await page.fill('#mission-input', TEST_MISSIONS[3].idea);
+    await page.click('#btn-generate');
+    await page.waitForSelector('#mission-output:not([hidden])', { timeout: 5000 });
+
+    // SAVE PROJECT
+    await page.click('#ws-save-btn');
+    await page.waitForFunction(
+      () => (document.getElementById('ws-save-msg').textContent || '').startsWith('Saved'),
+      { timeout: 5000 }
+    );
+    await page.waitForSelector('.ws-resume-btn', { timeout: 5000 });
+    let resumeButtons = await page.locator('.ws-resume-btn').count();
+    ok('Workspace: saved project appears in My Projects', resumeButtons === 1, `got ${resumeButtons}`);
+
+    // SAVE CURRENT PROGRESS — advancing a node PATCHes the open project.
+    const patchPromise = page.waitForRequest((req) => /\/api\/projects\/[^/]+$/.test(req.url()) && req.method() === 'PATCH');
+    await page.click('#pipe-next');
+    const patchReq = await patchPromise;
+    const patchBody = JSON.parse(patchReq.postData());
+    ok('Workspace: advancing a node saves progress via PATCH', patchBody.current_node === 2);
+
+    // LOG OUT
+    await page.click('#ws-logout-btn');
+    await page.waitForSelector('#ws-signed-out:not([hidden])', { timeout: 5000 });
+    const projectsHiddenAfterLogout = await page.getAttribute('#ws-projects-card', 'hidden');
+    ok('Workspace: logging out hides the projects panel', projectsHiddenAfterLogout !== null);
+
+    // LOG BACK IN
+    await page.fill('#ws-email', email);
+    await page.fill('#ws-password', password);
+    await page.click('#ws-login-btn');
+    await page.waitForSelector('#ws-signed-in:not([hidden])', { timeout: 5000 });
+
+    // SEE MY PROJECTS
+    await page.waitForSelector('.ws-resume-btn', { timeout: 5000 });
+    resumeButtons = await page.locator('.ws-resume-btn').count();
+    ok('Workspace: project still there after logging back in', resumeButtons === 1, `got ${resumeButtons}`);
+
+    // RESUME LAST WORKFLOW STEP
+    const getPromise = page.waitForRequest((req) => /\/api\/projects\/[^/]+$/.test(req.url()) && req.method() === 'GET');
+    await page.click('.ws-resume-btn');
+    await getPromise;
+    await page.waitForSelector('#mission-output:not([hidden])', { timeout: 5000 });
+    const nodeCountResumed = await page.locator('#node-timeline .node-row').count();
+    ok('Workspace: resume redraws the saved mission', nodeCountResumed === workspaceMission.steps.length, `got ${nodeCountResumed}`);
+    const activeNode = await page.locator('.pipe-node.active').getAttribute('data-n');
+    ok('Workspace: resume restores the last workflow step (node 2)', activeNode === '2', `got node ${activeNode}`);
+
+    ok('Workspace: no console errors across the full auth/save/resume flow', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
+  }
+
+  // ---- Anonymous generation still works with no account at all (the
+  //      explicit product decision: login is required to save/see projects,
+  //      never to generate a mission in the first place) ----
+  {
+    consoleErrors.length = 0;
+    await setMock({ mode: 'success', mission: TEST_MISSIONS[0].mission });
+    await page.goto(BASE, { waitUntil: 'load' });
+    await page.fill('#mission-input', TEST_MISSIONS[0].idea);
+    await page.click('#btn-generate');
+    await page.waitForSelector('#mission-output:not([hidden])', { timeout: 5000 });
+    const nodeCount = await page.locator('#node-timeline .node-row').count();
+    ok('Anonymous generation still works with no account', nodeCount === TEST_MISSIONS[0].mission.steps.length, `got ${nodeCount}`);
+    const saveBtnHidden = await page.getAttribute('#ws-save-btn', 'hidden');
+    ok('Anonymous visitor never sees the Save Project button', saveBtnHidden !== null);
+    ok('Anonymous generation: no console errors', realErrors(consoleErrors).length === 0, realErrors(consoleErrors).join(' | '));
   }
 
   await browser.close();
