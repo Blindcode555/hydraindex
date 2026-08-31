@@ -1636,6 +1636,27 @@ color: rgba(180, 210, 230, 0.75);
   overflow-y: auto;
 }
 
+/* Advanced disclosure (Your Hydra Prompt / Copy Prompt / AI Refine) — kept
+   collapsed by default so a beginner's default view is what/why/tool/time/
+   action, not a wall of prompt text. Nothing inside is removed, just tucked
+   behind one extra click. */
+.exec-advanced { border-top: 1px solid var(--border); padding-top: 16px; }
+.exec-advanced-summary {
+  font-family: var(--fm);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-mid);
+  cursor: pointer;
+  list-style: none;
+  display: flex; align-items: center; gap: 6px;
+}
+.exec-advanced-summary::-webkit-details-marker { display: none; }
+.exec-advanced-summary::before { content: '▸'; font-size: 10px; transition: transform 0.15s; }
+.exec-advanced[open] .exec-advanced-summary::before { transform: rotate(90deg); }
+.exec-advanced-summary:hover { color: var(--cyan); }
+.exec-advanced-body { margin-top: 14px; display: flex; flex-direction: column; gap: 20px; }
+
 .exec-actions {
   display: flex; flex-wrap: wrap; gap: 8px;
 }
@@ -2621,7 +2642,7 @@ box-shadow:
       </li>
       <li class="nav-item" data-target="execution">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polyline points="5 12 12 5 19 12"/><polyline points="5 12 12 19 19 12"/></svg>
-        Execution Path
+        Your Plan
       </li>
       <!-- Navigator Network nav hidden — uncomment to restore
       <li class="nav-item" data-target="crew">
@@ -2870,7 +2891,7 @@ box-shadow:
           <div class="mission-brief" style="margin-top: 36px;">
             <div class="mb-icon" id="mb-icon">🎯</div>
             <div class="mb-text">
-              <div class="mb-tag-row">Execution Path · 6 Nodes</div>
+              <div class="mb-tag-row" id="mb-tag-row">Your Plan · 6 Steps</div>
               <div class="mb-name" id="mb-name">—</div>
               <div class="mb-tags" id="mb-tags"></div>
             </div>
@@ -2880,7 +2901,7 @@ box-shadow:
           <div class="card pipe-card">
             <div class="pipe-head">
               <div class="pipe-head-l">
-                <div class="pipe-label">Current Phase</div>
+                <div class="pipe-label">Current Step</div>
                 <div class="pipe-phase" id="pipe-phase">Research</div>
               </div>
               <div class="pipe-head-r">
@@ -2906,8 +2927,8 @@ box-shadow:
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
                 <div>
-                  <div class="card-title">Execution Nodes</div>
-                  <div class="card-sub">Click Execute to launch a node</div>
+                  <div class="card-title">Your Steps</div>
+                  <div class="card-sub">Click Start This Step to begin</div>
                 </div>
               </div>
             </div>
@@ -3138,45 +3159,62 @@ box-shadow:
 <aside class="exec-panel" id="exec-panel" aria-hidden="true">
   <div class="exec-head">
     <div>
-      <div class="exec-h-title" id="exec-h-title">Execute Node</div>
-      <div class="exec-h-sub" id="exec-h-sub">NODE 01</div>
+      <div class="exec-h-title" id="exec-h-title">Step Details</div>
+      <div class="exec-h-sub" id="exec-h-sub">STEP 1 OF 6</div>
     </div>
     <button class="exec-close" id="exec-close" aria-label="Close">✕</button>
   </div>
+  <!-- Beginner-friendly information order: WHAT you're doing, WHY, WHAT
+       Hydra recommends, WHY that tool, HOW LONG, then the primary action.
+       The full structured prompt (and Copy Prompt / AI Refine) still exist
+       exactly as before — they're just tucked behind "Advanced ▾" so they
+       don't have to be the most visually dominant thing for a beginner. -->
   <div class="exec-body">
     <div class="exec-section">
-      <div class="exec-section-title">Context</div>
+      <div class="exec-section-title">What You're Doing</div>
+      <div style="color: var(--text-mid); font-size: 13px; line-height: 1.6;" id="exec-desc"></div>
+    </div>
+    <div class="exec-section">
       <div class="exec-meta-grid">
         <div class="exec-meta-item">
-          <div class="exec-meta-lbl">Recommended Tool</div>
+          <div class="exec-meta-lbl">Hydra Recommends</div>
           <div class="exec-meta-val" id="exec-tool">Claude</div>
         </div>
         <div class="exec-meta-item">
-          <div class="exec-meta-lbl">Time Estimate</div>
+          <div class="exec-meta-lbl">Estimated Time</div>
           <div class="exec-meta-val" id="exec-time">1–2 hrs</div>
         </div>
       </div>
     </div>
-    <div class="exec-section">
-      <div class="exec-section-title">Description</div>
-      <div style="color: var(--text-mid); font-size: 13px; line-height: 1.6;" id="exec-desc"></div>
+    <div class="exec-section" id="exec-why-tool-wrap" hidden>
+      <div class="exec-section-title">Why This Tool?</div>
+      <div style="color: var(--text-mid); font-size: 13px; line-height: 1.6;" id="exec-why-tool"></div>
     </div>
-    <div class="exec-section">
-      <div class="exec-section-title">Structured Prompt</div>
-      <div class="exec-prompt" id="exec-prompt"></div>
-    </div>
+
+    <details class="exec-advanced">
+      <summary class="exec-advanced-summary">Advanced</summary>
+      <div class="exec-advanced-body">
+        <div class="exec-section">
+          <div class="exec-section-title">Your Hydra Prompt</div>
+          <div class="exec-prompt" id="exec-prompt"></div>
+        </div>
+        <div class="exec-actions">
+          <button class="exec-btn" id="exec-copy">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy Prompt
+          </button>
+          <button class="exec-btn" id="exec-refine">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9 12 2"/></svg>
+            AI Refine
+          </button>
+        </div>
+      </div>
+    </details>
+
     <div class="exec-actions">
-      <button class="exec-btn" id="exec-copy">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copy Prompt
-      </button>
-      <button class="exec-btn" id="exec-refine">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9 12 2"/></svg>
-        AI Refine
-      </button>
       <button class="exec-btn primary" id="exec-launch">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg>
-        Launch Tool
+        Start This Step
       </button>
     </div>
   </div>
@@ -3254,6 +3292,23 @@ var CREW = [
 ];
 
 var WORKFLOWS = {
+  // Neutral, domain-agnostic fallback used when the offline/failure path
+  // can't confidently place an idea into any specific domain (no explicit
+  // type selected, and the idea text's keywords don't clearly match one of
+  // the named workflows below). Deliberately generic — it must never assume
+  // video, audio, code, or any other specific medium, since guessing wrong
+  // here is exactly the bug this exists to avoid.
+  general:{planet:null,icon:'🧭',label:'Custom Project Plan',tags:['General','Project Plan'],
+    steps:[
+      {n:'01',name:'Research & Validate',tool:'Perplexity AI',time:'1–3 hrs',desc:'Research your idea, audience, and existing solutions before committing time or money.',prompt:'Research the market, audience, and existing solutions for: "{IDEA}"\n\n1. Who is this for?\n2. What already exists?\n3. What gap does this fill?\n4. Key risks or open questions',url:'https://www.perplexity.ai/'},
+      {n:'02',name:'Define the Plan',tool:'Claude',time:'1–2 hrs',desc:'Turn the idea into a concrete plan — what you are building, for whom, and what "done" looks like.',prompt:'Help me define a concrete project plan for: "{IDEA}"\n\n1. Clear goal / definition of done\n2. Key requirements\n3. Major milestones\n4. What could go wrong',url:'https://claude.ai/'},
+      {n:'03',name:'Build the First Version',tool:'Claude',time:'Varies',desc:'Create the first real version of the thing itself, whatever this project\'s actual deliverable turns out to be.',prompt:'Help me create a first working version of: "{IDEA}"',url:'https://claude.ai/'},
+      {n:'04',name:'Review & Improve',tool:'Claude',time:'1–2 hrs',desc:'Get feedback and refine before investing further time or money.',prompt:'Review my progress and suggest concrete improvements for: "{IDEA}"',url:'https://claude.ai/'},
+      {n:'05',name:'Prepare to Launch',tool:'Notion',time:'1–2 hrs',desc:'Get everything organized and ready to share or ship.',prompt:'Create a launch-readiness checklist for: "{IDEA}"',url:'https://www.notion.so/'},
+      {n:'06',name:'Launch & Share',tool:'Claude',time:'Varies',desc:'Put it out into the world and plan how you\'ll follow up.',prompt:'Help me plan the launch and follow-up for: "{IDEA}"',url:'https://claude.ai/'},
+    ],
+    output:{title:'Completed Project Plan',desc:'A researched, planned, built, and launched project — tailored to your idea rather than assuming a specific medium.',items:['🔎 Research','📋 Plan','🛠 First version','🔄 Refinements','🚀 Launch']},
+  },
   youtube:{planet:'content',icon:'🎬',label:'AI YouTube Channel',tags:['YouTube','Video','AI Production'],
     steps:[
       {n:'01',name:'Topic Research',tool:'Perplexity AI',time:'1–2 hrs',desc:'Identify high-demand, low-competition topics.',prompt:'Research YouTube content opportunities for: "{IDEA}"\n\n1. Top 10 questions people search\n2. Five underserved angles\n3. Three sub-topics rising in 90 days\n4. Best format for each angle\n5. Highest-potential video title',url:'https://www.perplexity.ai/'},
@@ -3401,7 +3456,18 @@ function classify(text) {
   });
   var best=null, top=-1;
   Object.keys(scores).forEach(function(v){ if(scores[v]>top){top=scores[v]; best=v;} });
-  return best || 'youtube';
+  // A total score below this comes only from the broadest, most ambiguous
+  // catch-all keywords (weight 2 — "video", "content", "business", "post",
+  // etc.), which are too weak on their own to safely pick a whole mission
+  // domain. Below the threshold, or with literally no keyword match at all,
+  // classify() reports "no confident match" (null) instead of guessing —
+  // this used to silently return 'youtube' as an ultimate default, which is
+  // exactly what turned an unrelated idea (no matching keywords at all)
+  // into a YouTube mission. Callers must treat null as "use a neutral,
+  // domain-agnostic workflow," never re-default it to any specific domain.
+  var MIN_CLASSIFY_CONFIDENCE = 4;
+  if (!best || top < MIN_CLASSIFY_CONFIDENCE) return null;
+  return best;
 }
 
 /* ═══════════════════ DOM BUILDERS ═══════════════════ */
@@ -3538,6 +3604,8 @@ function renderMissionData(data, ideaText){
   document.getElementById('mb-icon').textContent=data.icon||'🧭';
   document.getElementById('mb-name').textContent=idea;
   document.getElementById('mb-tags').innerHTML=(data.tags||[]).map(function(t){return '<span class="mb-tag">'+esc(t)+'</span>';}).join('');
+  var tagRowEl=document.getElementById('mb-tag-row');
+  if(tagRowEl) tagRowEl.textContent='Your Plan · '+steps.length+' Step'+(steps.length===1?'':'s');
 
   var tl=document.getElementById('node-timeline'); tl.innerHTML='';
   steps.forEach(function(s){
@@ -3548,14 +3616,14 @@ function renderMissionData(data, ideaText){
       '<div class="node-dot">'+s.n+'</div>'+
       '<div class="node-body">'+
         '<div class="node-info">'+
-          '<div class="node-id">NODE '+s.n+'</div>'+
+          '<div class="node-id">STEP '+parseInt(s.n,10)+' OF '+steps.length+'</div>'+
           '<div class="node-name">'+esc(s.name)+'</div>'+
           '<div class="node-desc">'+esc(s.desc)+descExtra+'</div>'+
         '</div>'+
         '<div class="node-meta">'+
           '<div class="node-tool">🛠 '+esc(s.tool)+'</div>'+
           '<div class="node-time">⏱ '+esc(s.time)+timeExtra+'</div>'+
-          '<button class="btn-execute"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>Execute</button>'+
+          '<button class="btn-execute"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>Start This Step</button>'+
         '</div>'+
       '</div>';
     tl.appendChild(row);
@@ -3594,7 +3662,11 @@ function renderMissionData(data, ideaText){
 // same offline-safe path used before OpenAI orchestration existed, and it's
 // what generateMission() falls back to if the AI call fails.
 function renderMission(variant, ideaText){
-  var data=WORKFLOWS[variant]||WORKFLOWS.youtube;
+  // Defensive only: variant should always be a real WORKFLOWS key by the
+  // time it gets here (generateMission()'s catch block already resolves
+  // it), but if something ever passes an unrecognized key, fall back to the
+  // neutral 'general' workflow — never to a specific domain like YouTube.
+  var data=WORKFLOWS[variant]||WORKFLOWS.general;
   renderMissionData(data, ideaText||data.label);
 }
 
@@ -3627,7 +3699,25 @@ async function generateMission(){
   } catch(err){
     // AI orchestration unavailable/failed — fall back to the static offline
     // workflow rather than losing the user's idea or breaking the UI.
-    var variant=val ? classify(val) : (PLANET_DEFAULTS[state.type]||'youtube');
+    //
+    // Priority, and why: an explicit type selection is a strong signal the
+    // user already gave us — it must never be silently overridden by a
+    // free-text keyword guess on the idea text (that exact bug is what
+    // turned an explicit "Writing" selection into YouTube/video behavior
+    // whenever this fallback fired). Only when no type was selected do we
+    // classify the idea text itself, and even then, a low-confidence or
+    // no-match classification must not silently default to any specific
+    // domain (that's what turned an unrelated idea like modular cat trees
+    // into a YouTube mission) — it uses the neutral, domain-agnostic
+    // 'general' workflow instead.
+    var variant;
+    if (state.type && PLANET_DEFAULTS[state.type]) {
+      variant = PLANET_DEFAULTS[state.type];
+    } else if (val) {
+      variant = classify(val) || 'general';
+    } else {
+      variant = 'general';
+    }
     renderMission(variant, val || WORKFLOWS[variant].label);
   } finally {
     if(btn){ btn.disabled=false; if(prevHTML!==null) btn.innerHTML=prevHTML; syncState(); }
@@ -3649,7 +3739,7 @@ function _renderPipeNodes(){
   for(var i=0;i<PIPE_COUNT;i++){
     var num=i+1;
     var st = num<PIPE_LEVEL ? 'completed' : num===PIPE_LEVEL ? 'active' : 'locked';
-    var label=PIPE_LABELS[i]||('NODE '+String(num).padStart(2,'0'));
+    var label=PIPE_LABELS[i]||('Step '+String(num).padStart(2,'0'));
     html += '<div class="pipe-node '+st+'" data-n="'+num+'">'+
       '<div class="pipe-dot">'+String(num).padStart(2,'0')+'</div>'+
       '<div class="pipe-node-lbl">'+esc(label)+'</div>'+
@@ -3673,10 +3763,20 @@ var CURRENT_STEP=null;
 function openExecPanel(step, idea){
   CURRENT_STEP={step:step, idea:idea};
   document.getElementById('exec-h-title').textContent = step.name;
-  document.getElementById('exec-h-sub').textContent = 'NODE '+step.n;
+  document.getElementById('exec-h-sub').textContent = 'STEP '+parseInt(step.n,10)+' OF '+(PIPE_COUNT||1);
   document.getElementById('exec-tool').textContent = step.tool;
   document.getElementById('exec-time').textContent = step.time;
   document.getElementById('exec-desc').textContent = step.desc;
+  // "Why This Tool?" only has real data for AI-generated steps (step.why =
+  // the model's why_this_tool) — static offline WORKFLOWS steps don't carry
+  // this field, so the section stays hidden rather than showing empty.
+  var whyToolWrap = document.getElementById('exec-why-tool-wrap');
+  if (step.why) {
+    document.getElementById('exec-why-tool').textContent = step.why;
+    whyToolWrap.hidden = false;
+  } else {
+    whyToolWrap.hidden = true;
+  }
   document.getElementById('exec-prompt').textContent = inject(step.prompt, idea);
   document.getElementById('exec-overlay').classList.add('open');
   document.getElementById('exec-panel').classList.add('open');
@@ -4941,12 +5041,28 @@ function updateSidebarUserStatus() {
   }
 }
 
+// Fully clears classification state, not just the active-project pointer.
+// This is THE fix for the "stale mission type leaks into an unrelated new
+// idea" bug: before this, ACTIVE_PROJECT_ID/TITLE were the only things
+// cleared here, so state.type/level/budget (and the highlighted type/level/
+// budget buttons, and the previous mission's own rendered output) survived
+// a "New Mission" click untouched and silently rode along into the next
+// /api/generate-mission call. Mirrors exactly what #btn-reset already did
+// correctly (see its handler below) — this just makes every "start fresh"
+// entry point (sidebar link, Workspace button, "+ New Project" row) behave
+// the same way as Reset, instead of only Reset doing the full job.
 function startNewMission() {
   ACTIVE_PROJECT_ID = null;
   ACTIVE_PROJECT_TITLE = null;
+  state.type = state.level = state.budget = null;
+  document.querySelectorAll('.type-btn,.stk-btn').forEach(function (b) { b.classList.remove('on'); });
+  CURRENT_MISSION = null;
+  const missionOutput = document.getElementById('mission-output');
+  if (missionOutput) missionOutput.hidden = true;
   updateSidebarProjectStatus();
   const input = document.getElementById('mission-input');
   if (input) { input.value = ''; input.focus(); }
+  syncState();
   const consoleSec = document.getElementById('console');
   if (consoleSec) consoleSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

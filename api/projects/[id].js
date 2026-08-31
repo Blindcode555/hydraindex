@@ -10,8 +10,8 @@
 // reading or updating another user's project — this handler doesn't need to
 // (and doesn't) re-check ownership itself.
 
-const { getRequestContext } = require('../lib/request-context');
-const { getProjectWithLatestMission, updateProjectProgress } = require('../lib/mission-store');
+const { getRequestContext } = require('../_lib/request-context');
+const { getProjectWithLatestMission, updateProjectProgress } = require('../_lib/mission-store');
 
 function extractId(req) {
   if (req.query && req.query.id) return req.query.id; // Vercel populates this for [id].js

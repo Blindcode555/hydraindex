@@ -16,9 +16,9 @@
 // do, so anonymous vs. authenticated is decided the same trusted way
 // everywhere.
 
-const { getRequestContext } = require('./lib/request-context');
-const { getProfile } = require('./lib/mission-store');
-const { answerHydraQuestion, AskHydraError } = require('./lib/ask-hydra');
+const { getRequestContext } = require('./_lib/request-context');
+const { getProfile } = require('./_lib/mission-store');
+const { answerHydraQuestion, AskHydraError } = require('./_lib/ask-hydra');
 const { rateLimit, getClientIp } = require('./_shared');
 
 const MAX_MESSAGE_LENGTH = 800;

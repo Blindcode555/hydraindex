@@ -18,10 +18,11 @@
 // client-side fetch straight to api.openai.com anywhere in index.html —
 // always come through an endpoint like this one.
 
-const { getRequestContext } = require('./lib/request-context');
-const { checkEntitlement } = require('./lib/entitlements');
-const { buildMissionRecord, saveMission } = require('./lib/mission-store');
-const { generateMissionPlan, OrchestratorError, MISSION_MODEL } = require('./lib/orchestrator');
+const { getRequestContext } = require('./_lib/request-context');
+const { checkEntitlement } = require('./_lib/entitlements');
+const { buildMissionRecord, saveMission } = require('./_lib/mission-store');
+const { generateMissionPlan, OrchestratorError, MISSION_MODEL } = require('./_lib/orchestrator');
+const { validateMissionQuality } = require('./_lib/mission-quality');
 const {
   VALID_TYPES,
   VALID_LEVELS,
@@ -84,6 +85,32 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // 3b. AUTOMATIC QUALITY GATE (ONE additional OpenAI call, mission-level) --
+  // Checks the whole generated mission together (goal/domain alignment,
+  // respects an explicit user-selected type, step/tool relevance, sequence,
+  // prompt quality, contamination, redundancy, execution truth) and can
+  // rebuild it if it's semantically wrong — not just reword it. This is
+  // fail-open by design: if it errors for ANY reason (no key, network,
+  // upstream failure, bad JSON, or a corrected mission that fails the same
+  // registry check generation itself uses), the original, already-valid
+  // `mission` from generateMissionPlan() above is what still gets shown.
+  // The quality gate is never allowed to make Generate Path fail, and it
+  // never substitutes a different, unrelated hardcoded workflow — it only
+  // ever refines the SAME mission it was given, or leaves it exactly as-is.
+  let qualityStatus = 'quality_check_unavailable';
+  let qualityCorrected = false;
+  try {
+    const qualityResult = await validateMissionQuality({ idea, type, level, budget, mission });
+    qualityStatus = 'quality_checked';
+    qualityCorrected = qualityResult.status === 'corrected';
+    mission = qualityResult.mission;
+  } catch (err) {
+    // Deliberately swallowed: quality-gate unavailability must never break
+    // mission generation or expose an internal error to the user (see
+    // README-openai-setup.md's "Automatic Quality Gate" section). The
+    // mission generated above is untouched and still gets returned below.
+  }
+
   // 4. SHAPE FOR PERSISTENCE, then 5. SAVE (no-op until a database exists) --
   const record = buildMissionRecord({ idea, type, level, budget, mission, context, model: MISSION_MODEL });
   const saveResult = await saveMission(record);
@@ -97,6 +124,17 @@ module.exports = async (req, res) => {
     steps: mission.steps,
     output: mission.output,
     plan: context.plan,
-    meta: { model: MISSION_MODEL, generated_at: record.created_at },
+    meta: {
+      model: MISSION_MODEL,
+      generated_at: record.created_at,
+      // Internal, non-sensitive status only — never a reasoning string or
+      // technical error detail. "quality_checked" means the automatic
+      // quality gate ran (and either confirmed the mission or corrected
+      // it, see quality_corrected); "quality_check_unavailable" means it
+      // could not run and the mission above is exactly what
+      // generateMissionPlan() produced, unmodified.
+      quality_status: qualityStatus,
+      quality_corrected: qualityCorrected,
+    },
   });
 };

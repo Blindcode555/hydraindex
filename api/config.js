@@ -19,7 +19,7 @@
 // new *public* config value, add it explicitly and narrowly here — never by
 // forwarding process.env wholesale.
 
-const { SUPABASE_URL, SUPABASE_ANON_KEY, isConfigured } = require('./lib/supabase-server');
+const { SUPABASE_URL, SUPABASE_ANON_KEY, isConfigured } = require('./_lib/supabase-server');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {

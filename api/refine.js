@@ -8,9 +8,9 @@
 // explicitly called out as a candidate paid-tier feature in the product
 // plan — gating it later means changing entitlements.js only.
 
-const { getRequestContext } = require('./lib/request-context');
-const { checkEntitlement } = require('./lib/entitlements');
-const { refineStepPrompt, OrchestratorError } = require('./lib/orchestrator');
+const { getRequestContext } = require('./_lib/request-context');
+const { checkEntitlement } = require('./_lib/entitlements');
+const { refineStepPrompt, OrchestratorError } = require('./_lib/orchestrator');
 const { rateLimit, getClientIp } = require('./_shared');
 
 const MAX_FIELD_LENGTH = 1500;

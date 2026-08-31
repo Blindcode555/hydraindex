@@ -47,6 +47,16 @@ function rateLimit(key, { limit = 12, windowMs = 60 * 60 * 1000 } = {}) {
   return arr.length <= limit;
 }
 
+// Test-only: clears all in-memory rate-limit counters. The dev/e2e test
+// harness (test/dev-server.js) runs the entire regression suite through one
+// long-lived process hitting this same in-memory Map from one client
+// identity (no real distinct IPs), so a growing test suite can otherwise
+// trip this best-effort limiter well before any of its own tests intend to
+// exercise 429 behavior. Never called from production code paths.
+function resetRateLimits() {
+  _hits.clear();
+}
+
 function getClientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
   if (typeof fwd === 'string' && fwd.length) return fwd.split(',')[0].trim();
@@ -68,6 +78,7 @@ module.exports = {
   getRegistrySummaryForPrompt,
   lookupTool,
   rateLimit,
+  resetRateLimits,
   getClientIp,
   sanitizeIdea,
 };

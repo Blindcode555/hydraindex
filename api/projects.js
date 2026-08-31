@@ -9,8 +9,8 @@
 // available to signed-out visitors via /api/generate-mission; only saving
 // and viewing projects requires an account.
 
-const { getRequestContext } = require('./lib/request-context');
-const { getProfile, listProjects, createProject } = require('./lib/mission-store');
+const { getRequestContext } = require('./_lib/request-context');
+const { getProfile, listProjects, createProject } = require('./_lib/mission-store');
 
 module.exports = async (req, res) => {
   const context = await getRequestContext(req);
