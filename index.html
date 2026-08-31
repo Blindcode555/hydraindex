@@ -453,6 +453,37 @@ color: var(--text-dim);
 }
 .sidebar-stats .row .v { color: var(--cyan); }
 
+/* Nested PROJECTS directory (Phase 6.2) — replaces the old single
+   active-project line. Reuses .sidebar-stats spacing/typography above. */
+.sb-proj-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 0; cursor: default;
+}
+.sb-proj-row.active .sb-proj-name { color: var(--cyan); }
+.sb-proj-arrow {
+  cursor: pointer; color: var(--text-dim); width: 12px; flex-shrink: 0;
+  font-size: 9px;
+}
+.sb-proj-arrow:hover { color: var(--cyan); }
+.sb-proj-name {
+  cursor: pointer; color: var(--text-mid); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-proj-name:hover { color: var(--cyan); }
+.sb-proj-badge {
+  font-size: 9px; color: var(--text-dim); flex-shrink: 0;
+}
+.sb-proj-nodes { padding-left: 18px; margin-bottom: 2px; }
+.sb-proj-node, .sb-proj-node-loading {
+  padding: 3px 0; font-size: 9px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sb-proj-node { cursor: pointer; }
+.sb-proj-node:hover { color: var(--cyan); }
+.sb-proj-node.current { color: var(--cyan); }
+.sb-new-project-row:hover span, .sb-view-all-row:hover span { color: var(--cyan); }
+.sb-view-all-row { display: block; }
+
 .sidebar-footer {
   margin-top: auto;
   padding: 12px;
@@ -2443,6 +2474,33 @@ body.light-mode {
   margin-top: 14px;
   padding-left: 22px;
 }
+
+/* Conversational transcript (Phase 6.2) — reuses the .ask-hydra-output card
+   styling above; messages are appended, never replaced, so a session's
+   follow-up questions read as a real back-and-forth. */
+.ask-hydra-msg { margin-bottom: 14px; }
+.ask-hydra-msg:last-child { margin-bottom: 0; }
+.ask-hydra-msg-role {
+  font-family: var(--fm); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;
+}
+.ask-hydra-msg.user .ask-hydra-msg-role { color: var(--cyan); }
+.ask-hydra-msg-body {
+  font-size: 13px; color: var(--text); line-height: 1.6; white-space: pre-wrap;
+}
+.ask-hydra-msg.pending .ask-hydra-msg-body { color: var(--text-dim); }
+
+.ask-hydra-examples {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  margin-top: 10px;
+}
+.ask-hydra-example {
+  font-family: var(--fm); font-size: 11px; color: var(--text-mid);
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px;
+  cursor: pointer;
+}
+.ask-hydra-example:hover { color: var(--cyan); border-color: var(--cyan-mid); }
+
 .ask-hydra-action {
   display: flex;
   flex-direction: column;
@@ -2581,13 +2639,20 @@ box-shadow:
   Ask Hydra Agent
 </li>
 
-<li class="nav-item" data-target="workspace">
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-    <line x1="3" y1="9" x2="21" y2="9"></line>
-    <line x1="9" y1="21" x2="9" y2="9"></line>
-  </svg>
-  Hydra Workspace
+<li class="nav-item" style="padding:0;">
+  <!-- Opens the dedicated Workspace view in its own tab (real link
+       semantics, no JS popup) rather than scrolling to the in-page
+       section below — see workspace.html. Signing in/up still happens
+       via the sidebar user-pill below, which still opens the in-page
+       Hydra Workspace section — there is exactly one auth UI. -->
+  <a href="/workspace" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;padding:9px 10px;width:100%;border-radius:7px;">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+      <line x1="3" y1="9" x2="21" y2="9"></line>
+      <line x1="9" y1="21" x2="9" y2="9"></line>
+    </svg>
+    Hydra Workspace
+  </a>
 </li>
 
       <li class="nav-item" data-target="ranks">
@@ -2605,17 +2670,25 @@ box-shadow:
    
 
     <div class="nav-divider"></div>
-    <!-- Real current-project status (replaces two hardcoded/demo platform
-         counters — "Missions: 2,841" and "Navigators: 1,204" — that were
-         pure decoration with no backing data). Hidden until a project is
-         actually open (just Saved, or Resumed); see updateSidebarStatus()
-         in the Workspace script block. -->
-    <div class="sidebar-stats" id="sidebar-project-status" hidden>
-      <div class="row"><span>Project</span><span class="v" id="sb-project-name">—</span></div>
-      <div class="row"><span>Progress</span><span class="v" id="sb-project-node">—</span></div>
-    </div>
-    <div class="sidebar-stats">
-      <div class="row"><span>UTC</span><span class="v" id="utc-clock">00:00:00</span></div>
+    <!-- Nested PROJECTS directory (Phase 6.2) — replaces the old single
+         "Project / Progress" line, which itself replaced two hardcoded/demo
+         platform counters ("Missions: 2,841" / "Navigators: 1,204"). Hidden
+         for anonymous visitors (no private project list to show) and
+         rendered from the same ALL_PROJECTS array the Workspace list uses —
+         see renderProjectDirectory() in the Workspace script block. The old
+         UTC clock was removed outright (no product value) rather than
+         replaced with another metric. -->
+    <div class="sidebar-stats sidebar-projects" id="sidebar-projects-directory" hidden>
+      <div class="row" style="cursor:default;">
+        <span>PROJECTS (<span id="sb-projects-count">0</span>)</span>
+      </div>
+      <div id="sb-projects-tree"></div>
+      <div class="row sb-new-project-row" id="sb-new-project-row" style="cursor:pointer;">
+        <span>+ New Project</span>
+      </div>
+      <a href="/workspace" target="_blank" rel="noopener" class="row sb-view-all-row" style="cursor:pointer;text-decoration:none;color:inherit;">
+        <span>View All Projects →</span>
+      </a>
     </div>
 
     <div class="sidebar-footer">
@@ -2880,57 +2953,47 @@ box-shadow:
   </div>
 
   <div class="arcade-banner-caption">
-    Hydra routes the tools. Control remains with you.
+    What would you like help with inside Hydra?
   </div>
 </div>
+
+<!-- Ask Hydra is a scoped product assistant (navigation, tools, your
+     projects/workflow) — not a general chatbot. See POST /api/ask-hydra
+     and api/lib/ask-hydra.js for the system prompt that enforces this. -->
+<div id="ask-hydra-transcript" class="ask-hydra-output" hidden></div>
 
 <div class="ask-hydra-input-wrap">
   <textarea
     id="ask-hydra-input"
     class="ask-hydra-input"
-    placeholder="Describe your idea… Hydra will map tools, steps, and execution path."
-    rows="3"
+    placeholder="What would you like help with inside Hydra?"
+    rows="2"
   ></textarea>
 </div>
 
 <div class="ask-hydra-action">
-  <div class="ask-hydra-status">SYSTEM READY · ROUTING ENABLED</div>
+  <div class="ask-hydra-status" id="ask-hydra-status">SYSTEM READY · ROUTING ENABLED</div>
 
   <button class="ask-hydra-exec" id="ask-hydra-btn">
-    GENERATE RESPONSE
+    ASK HYDRA
   </button>
 </div>
 <div class="hydra-preview">
-  <div class="hydra-preview-title">Mission Path Preview</div>
-  <p>Hydra will map tools, prompts, risks, and execution steps.</p>
+  <div class="hydra-preview-title">Try asking</div>
+  <p class="ask-hydra-examples">
+    <span class="ask-hydra-example" data-q="How do I use Hydra for an audiobook?">How do I use Hydra for an audiobook?</span>
+    <span class="ask-hydra-example" data-q="Which tools can I combine for a SaaS?">Which tools can I combine for a SaaS?</span>
+    <span class="ask-hydra-example" data-q="What does this node mean?">What does this node mean?</span>
+    <span class="ask-hydra-example" data-q="What tool should I use for voice?">What tool should I use for voice?</span>
+    <span class="ask-hydra-example" data-q="How do I resume my project?">How do I resume my project?</span>
+    <span class="ask-hydra-example" data-q="What should I do after Node 2?">What should I do after Node 2?</span>
+  </p>
 </div>
 
 <div class="ask-hydra-badge">⚡ Agent mode</div>
 </div>
 </div>
-    </section>  
-
-    <div id="ask-hydra-output" class="ask-hydra-output" hidden>
-  <div class="ask-output-title">Mission Path Created</div>
-  <div class="ask-output-sub">Generated by Hydra's AI orchestration layer.</div>
-
-<div class="arcade-banner-caption">
-  Hydra routes the tools. You keep control of the mission.
-</div>
-
-  <!-- 👇 ADD THIS LINE -->
-  <div id="ask-output-user"></div>
-
-  <ol class="ask-output-list">
-    <li>Clarify target outcome</li>
-    <li>Recommend best AI tools</li>
-    <li>Generate execution prompts</li>
-    <li>Estimate token / effort level</li>
-    <li>Run safety + privacy check</li>
-    <li>Create step-by-step workflow</li>
-  </ol>
-
-</div>
+    </section>
 
         <!-- ═══════════════════ WORKSPACE ═══════════════════ -->
         <div class="section-head" id="workspace">
@@ -3844,15 +3907,6 @@ function wireCompass(){
   setTimeout(tick, 600);
 })();
 
-(function startClock(){
-  var el=document.getElementById('utc-clock'); if(!el) return;
-  function tick(){
-    var d=new Date();
-    el.textContent = String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+':'+String(d.getUTCSeconds()).padStart(2,'0');
-  }
-  tick(); setInterval(tick, 1000);
-})();
-
 /* ═══════════════════ AMBIENT BACKGROUND ═══════════════════ */
 (function(){
   var canvas = document.getElementById('ambient-bg');
@@ -4525,80 +4579,84 @@ arcadeLoop();
 
 const askInput = document.getElementById("ask-hydra-input");
 const askBtn = document.getElementById("ask-hydra-btn");
-const askOutput = document.getElementById("ask-hydra-output");
+const askOutput = document.getElementById("ask-hydra-transcript");
+const askStatus = document.getElementById("ask-hydra-status");
 
+// This session's Ask Hydra conversation only — in memory, never persisted
+// (no chat-history table; explicitly out of scope for Phase 6.2). A page
+// reload starts a fresh conversation.
+let ASK_HYDRA_HISTORY = [];
+
+function appendAskHydraMessage(role, text) {
+  if (!askOutput) return;
+  askOutput.hidden = false;
+  const row = document.createElement('div');
+  row.className = 'ask-hydra-msg ' + role;
+  row.innerHTML =
+    '<div class="ask-hydra-msg-role">' + (role === 'user' ? 'You' : 'Hydra') + '</div>' +
+    '<div class="ask-hydra-msg-body">' + esc(text) + '</div>';
+  askOutput.appendChild(row);
+  askOutput.scrollTop = askOutput.scrollHeight;
+}
+
+// Minimal active-project context, read straight from state this page
+// already holds (never a fresh database fetch) — see api/ask-hydra.js for
+// why the server treats this as display context, not an authorization
+// input. Anonymous visitors never have an ACTIVE_PROJECT_ID, so this is
+// naturally null for them, and the backend independently ignores it unless
+// the caller is authenticated regardless.
+function currentAskHydraProjectContext() {
+  if (!CURRENT_USER || !ACTIVE_PROJECT_ID) return null;
+  return {
+    title: ACTIVE_PROJECT_TITLE || null,
+    goal: (typeof CURRENT_MISSION !== 'undefined' && CURRENT_MISSION && CURRENT_MISSION.idea) || null,
+    currentNode: typeof PIPE_LEVEL !== 'undefined' ? PIPE_LEVEL : null,
+    nodeCount: typeof PIPE_COUNT !== 'undefined' ? PIPE_COUNT : null,
+    nodeTitles: typeof PIPE_LABELS !== 'undefined' ? PIPE_LABELS : [],
+  };
+}
+
+// Ask Hydra's own dedicated endpoint — a scoped Hydra product assistant,
+// NOT the Mission Orchestrator. This used to just call /api/generate-mission
+// with the typed text as an "idea"; it now calls /api/ask-hydra, which has
+// its own system prompt/context builder (api/lib/ask-hydra.js) and never
+// touches Mission Orchestrator, AI Refine, or Luna.
 async function runHydra() {
   const rawValue = askInput.value.trim();
   if (!rawValue) return;
 
-  // Best-effort only: logging to Supabase must never block the actual
-  // mission generation below (e.g. if the Supabase CDN script failed to
-  // load, or the insert errors for any reason).
-  let success = false;
+  appendAskHydraMessage('user', rawValue);
+  askInput.value = '';
+  askInput.disabled = true;
+  askBtn.disabled = true;
+  if (askStatus) askStatus.textContent = 'THINKING…';
+
+  let reply;
   try {
-    success = await saveHydraMission(rawValue);
-  } catch (err) {
-    console.warn('Hydra: mission-log save failed (continuing anyway):', err);
-  }
-
-  if (success) {
-    askInput.value = "";
-
-    const btn = document.getElementById("ask-hydra-btn");
-    btn.innerText = "Saved ✓";
-
-    setTimeout(() => {
-      btn.innerText = "Generate Response";
-    }, 2000);
-  }
-
-  const list = document.querySelector(".ask-output-list");
-  const userText = document.getElementById("ask-output-user");
-
-  if (userText) {
-    userText.textContent = "Mission: " + rawValue;
-  }
-
-  // Same OpenAI-orchestrated brain as the main Mission Builder (registry-
-  // constrained, no invented tools/prices). Ask Hydra is just a lighter entry
-  // point into it — type/level/budget aren't collected here, so the backend
-  // treats them as unspecified and reasons from the idea text alone.
-  let steps = [];
-  try {
-    const endpoint = (CONFIG.API_BASE || '') + (CONFIG.MISSION_ENDPOINT || '/api/generate-mission');
-    const res = await authFetch(endpoint, {
+    const res = await authFetch('/api/ask-hydra', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idea: rawValue })
+      body: JSON.stringify({
+        message: rawValue,
+        history: ASK_HYDRA_HISTORY,
+        activeProject: currentAskHydraProjectContext(),
+      }),
     });
-    if (!res.ok) throw new Error('mission_http_' + res.status);
+    if (!res.ok) throw new Error('ask_hydra_http_' + res.status);
     const payload = await res.json();
-    if (!payload || !Array.isArray(payload.steps) || !payload.steps.length) throw new Error('mission_empty');
-    steps = payload.steps.map(s => s.tool_name ? (s.title + ' — ' + s.tool_name) : s.title);
+    reply = payload && payload.reply;
+    if (!reply) throw new Error('ask_hydra_empty');
   } catch (err) {
-    // AI orchestration unavailable — generic, non-hallucinated fallback so
-    // the widget never breaks or shows nothing.
-    steps = [
-      "Clarify target outcome",
-      "Recommend best AI tools",
-      "Generate execution prompts",
-      "Estimate token / effort level",
-      "Run safety + privacy check",
-      "Create step-by-step workflow"
-    ];
+    reply = "Ask Hydra is temporarily unavailable. You can still generate a mission from Mission Console while this is down.";
   }
 
-  // update steps
-  if (list) {
-    list.innerHTML = steps.map(step => `<li>${esc(step)}</li>`).join("");
-  }
+  appendAskHydraMessage('assistant', reply);
+  ASK_HYDRA_HISTORY.push({ role: 'user', content: rawValue });
+  ASK_HYDRA_HISTORY.push({ role: 'assistant', content: reply });
 
-  // show output
-  askOutput.hidden = false;
-  askOutput.scrollIntoView({ behavior: "smooth", block: "center" });
-
-  // reset input
-  askInput.value = "";
+  askInput.disabled = false;
+  askBtn.disabled = false;
+  if (askStatus) askStatus.textContent = 'SYSTEM READY · ROUTING ENABLED';
   askInput.focus();
 }
 
@@ -4613,6 +4671,13 @@ if (askInput && askBtn && askOutput) {
       e.preventDefault();
       runHydra();
     }
+  });
+
+  document.querySelectorAll('.ask-hydra-example').forEach(function (el) {
+    el.addEventListener('click', function () {
+      askInput.value = el.dataset.q || el.textContent.trim();
+      askInput.focus();
+    });
   });
 }
 </script>
@@ -4672,6 +4737,28 @@ let ACTIVE_PROJECT_ID = null;   // the project currently open in the builder, if
 let ACTIVE_PROJECT_TITLE = null; // title of that project, for the sidebar status only
 let IN_PASSWORD_RECOVERY = false; // true once a PASSWORD_RECOVERY session is detected
 
+// Nested PROJECTS directory (Phase 6.2) state. ALL_PROJECTS is the single
+// list both the sidebar directory and the Workspace card render from — set
+// once, in loadWorkspace(), from the same GET /api/projects response the
+// Workspace already fetched. This is deliberately the only place project
+// data is cached client-side; nothing here duplicates or replaces it.
+let ALL_PROJECTS = [];
+let EXPANDED_PROJECT_IDS = new Set(); // non-active project ids currently expanded in the sidebar
+let PROJECT_NODE_CACHE = {};          // projectId -> [nodeTitle, ...], lazily fetched on first expand
+// A project id to auto-resume once a session is confirmed, e.g. from
+// workspace.html's "Resume" link (which navigates to /?resume=<id>), or an
+// "Open Node" link from a project's visual workflow view
+// (/?resume=<id>&node=<n>), which additionally jumps straight to that node
+// instead of wherever the project was left off.
+let PENDING_RESUME_ID = null;
+let PENDING_RESUME_NODE = null;
+try {
+  const resumeParams = new URLSearchParams(window.location.search);
+  PENDING_RESUME_ID = resumeParams.get('resume') || null;
+  const nodeParam = parseInt(resumeParams.get('node'), 10);
+  PENDING_RESUME_NODE = Number.isInteger(nodeParam) && nodeParam > 0 ? nodeParam : null;
+} catch (e) { /* URLSearchParams unavailable — resume-by-link simply won't fire */ }
+
 async function getAccessToken() {
   if (!hydraDB) return null;
   try {
@@ -4699,25 +4786,129 @@ function updateWorkspaceButtons() {
   if (saveBtn) saveBtn.hidden = !(CURRENT_USER && typeof CURRENT_MISSION !== 'undefined' && CURRENT_MISSION);
 }
 
-// Compact "CURRENT PROJECT" status in the sidebar (replaces the old
-// hardcoded Missions/Navigators counters). Hidden whenever no project is
-// actively open — it never invents a project, it just mirrors ACTIVE_PROJECT_ID.
+// Nested PROJECTS directory in the sidebar (Phase 6.2) — replaces the old
+// single "Project / Progress" line. Renders from ALL_PROJECTS (the same
+// array the Workspace's "Recent Projects" card uses) plus the live
+// PIPE_LEVEL/PIPE_LABELS state for whichever project is currently active.
+// Hidden entirely for anonymous visitors — there is no private project list
+// to show them. Kept under its old name (updateSidebarProjectStatus) so
+// every existing call site (startNewMission, maybeSaveProgress,
+// resumeProject, saveCurrentMission, renderAuthState) keeps working
+// unchanged.
 function updateSidebarProjectStatus() {
-  const wrap = document.getElementById('sidebar-project-status');
-  if (!wrap) return;
-  if (ACTIVE_PROJECT_ID && ACTIVE_PROJECT_TITLE) {
-    wrap.hidden = false;
-    const nameEl = document.getElementById('sb-project-name');
-    const nodeEl = document.getElementById('sb-project-node');
-    if (nameEl) nameEl.textContent = ACTIVE_PROJECT_TITLE;
-    if (nodeEl) {
-      const level = typeof PIPE_LEVEL !== 'undefined' ? PIPE_LEVEL : 1;
-      const count = typeof PIPE_COUNT !== 'undefined' ? PIPE_COUNT : 1;
-      nodeEl.textContent = 'Node ' + level + ' of ' + count;
-    }
-  } else {
+  renderProjectDirectory();
+}
+
+function renderProjectDirectory() {
+  const wrap = document.getElementById('sidebar-projects-directory');
+  const countEl = document.getElementById('sb-projects-count');
+  const treeEl = document.getElementById('sb-projects-tree');
+  if (!wrap || !treeEl) return;
+
+  if (!CURRENT_USER) {
     wrap.hidden = true;
+    return;
   }
+  wrap.hidden = false;
+  if (countEl) countEl.textContent = String(ALL_PROJECTS.length);
+
+  if (!ALL_PROJECTS.length) {
+    treeEl.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:4px 0;">No saved projects yet.</div>';
+    return;
+  }
+
+  // Active project always first and always expanded; the rest keep the
+  // order they arrived in (already updated_at.desc from the API).
+  const ordered = ALL_PROJECTS.slice().sort(function (a, b) {
+    if (a.id === ACTIVE_PROJECT_ID) return -1;
+    if (b.id === ACTIVE_PROJECT_ID) return 1;
+    return 0;
+  });
+
+  treeEl.innerHTML = ordered.map(function (p) {
+    const isActive = p.id === ACTIVE_PROJECT_ID;
+    const expanded = isActive || EXPANDED_PROJECT_IDS.has(p.id);
+    const arrow = expanded ? '▾' : '▸';
+    const level = typeof PIPE_LEVEL !== 'undefined' ? PIPE_LEVEL : 1;
+    const count = typeof PIPE_COUNT !== 'undefined' ? PIPE_COUNT : 1;
+    const badge = isActive ? '<span class="sb-proj-badge">Node ' + level + '/' + count + '</span>' : '';
+
+    let nodesHtml = '';
+    if (expanded) {
+      const titles = isActive ? PIPE_LABELS : PROJECT_NODE_CACHE[p.id];
+      const currentNode = isActive ? level : (p.current_node || 1);
+      if (Array.isArray(titles) && titles.length) {
+        nodesHtml = '<div class="sb-proj-nodes">' + titles.map(function (t, i) {
+          const n = i + 1;
+          const curClass = n === currentNode ? ' current' : '';
+          return '<div class="sb-proj-node' + curClass + '" data-id="' + esc(p.id) + '" data-node="' + n + '">' + n + '. ' + esc(t) + '</div>';
+        }).join('') + '</div>';
+      } else {
+        nodesHtml = '<div class="sb-proj-nodes"><div class="sb-proj-node-loading">Loading nodes…</div></div>';
+      }
+    }
+
+    return '<div class="sb-proj-row' + (isActive ? ' active' : '') + '">' +
+        '<span class="sb-proj-arrow" data-id="' + esc(p.id) + '">' + arrow + '</span>' +
+        '<span class="sb-proj-name" data-id="' + esc(p.id) + '" title="' + esc(p.title) + '">' + esc(p.title) + '</span>' +
+        badge +
+      '</div>' + nodesHtml;
+  }).join('');
+
+  treeEl.querySelectorAll('.sb-proj-arrow').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.stopPropagation();
+      toggleProjectExpansion(el.dataset.id);
+    });
+  });
+  treeEl.querySelectorAll('.sb-proj-name').forEach(function (el) {
+    el.addEventListener('click', function () { resumeProject(el.dataset.id); });
+  });
+  treeEl.querySelectorAll('.sb-proj-node').forEach(function (el) {
+    el.addEventListener('click', function () { openProjectNode(el.dataset.id, parseInt(el.dataset.node, 10)); });
+  });
+}
+
+// Expanding a project that ISN'T the active one lazily fetches its node
+// titles via the exact same GET /api/projects/:id endpoint "Resume" already
+// uses (never on initial page load — only on first manual expand), then
+// caches the result so re-expanding never re-fetches.
+async function toggleProjectExpansion(projectId) {
+  if (projectId === ACTIVE_PROJECT_ID) return; // the active project is always expanded
+  if (EXPANDED_PROJECT_IDS.has(projectId)) {
+    EXPANDED_PROJECT_IDS.delete(projectId);
+    renderProjectDirectory();
+    return;
+  }
+  EXPANDED_PROJECT_IDS.add(projectId);
+  renderProjectDirectory(); // shows "Loading nodes…" immediately
+
+  if (!PROJECT_NODE_CACHE[projectId]) {
+    try {
+      const res = await authFetch('/api/projects/' + projectId);
+      if (res.ok) {
+        const data = await res.json();
+        const steps = (data.mission && data.mission.workflow_json && data.mission.workflow_json.steps) || [];
+        PROJECT_NODE_CACHE[projectId] = steps.map(function (s) { return normalizeStep(s).name; });
+      } else {
+        PROJECT_NODE_CACHE[projectId] = [];
+      }
+    } catch (e) {
+      PROJECT_NODE_CACHE[projectId] = [];
+    }
+  }
+  renderProjectDirectory();
+}
+
+// Clicking a specific node: load that project first if it isn't already
+// active, then jump straight to that node — one existing function
+// (resumeProject) plus one existing function (setPipeLevel), no new state.
+async function openProjectNode(projectId, nodeNumber) {
+  if (projectId !== ACTIVE_PROJECT_ID) {
+    await resumeProject(projectId);
+  }
+  setPipeLevel(nodeNumber);
+  renderProjectDirectory();
 }
 
 // Global "USER" status pill in the sidebar footer — same visual element
@@ -4818,7 +5009,25 @@ async function loadWorkspace() {
       if (creditsEl) creditsEl.textContent = String(data.profile.hydra_credit_balance != null ? data.profile.hydra_credit_balance : 0);
       updateSidebarUserStatus(); // plan/credits just changed — keep the sidebar pill in sync
     }
-    renderProjectsList(data.projects || []);
+    // Single source of truth for BOTH the Workspace's "Recent Projects" card
+    // and the sidebar's nested PROJECTS directory — see renderProjectDirectory().
+    ALL_PROJECTS = data.projects || [];
+    renderProjectsList(ALL_PROJECTS);
+    renderProjectDirectory();
+
+    // A pending "Resume" from workspace.html (/?resume=<id>), optionally with
+    // &node=<n> from an "Open Node" link in a project's visual workflow view
+    // — handled here, once, right after the project list is confirmed loaded
+    // for this user.
+    if (PENDING_RESUME_ID) {
+      const id = PENDING_RESUME_ID;
+      const node = PENDING_RESUME_NODE;
+      PENDING_RESUME_ID = null;
+      PENDING_RESUME_NODE = null;
+      try { history.replaceState(null, '', window.location.pathname); } catch (e) {}
+      await resumeProject(id);
+      if (node) setPipeLevel(node);
+    }
   } catch (e) {
     console.warn('Hydra: could not load workspace', e);
   }
@@ -4907,6 +5116,9 @@ function renderAuthState(session) {
     if (projectsCard) projectsCard.hidden = true;
     ACTIVE_PROJECT_ID = null;
     ACTIVE_PROJECT_TITLE = null;
+    ALL_PROJECTS = [];
+    EXPANDED_PROJECT_IDS = new Set();
+    PROJECT_NODE_CACHE = {};
     updateSidebarProjectStatus();
   }
   updateWorkspaceButtons();
@@ -5007,6 +5219,7 @@ function wireWorkspace() {
   const sidebarPill = document.getElementById('sidebar-user-pill');
   const sbNewMission = document.getElementById('sb-link-new-mission');
   const sbLogout = document.getElementById('sb-link-logout');
+  const sbNewProjectRow = document.getElementById('sb-new-project-row');
 
   if (signupBtn) signupBtn.addEventListener('click', handleSignUp);
   if (loginBtn) loginBtn.addEventListener('click', handleLogIn);
@@ -5020,14 +5233,18 @@ function wireWorkspace() {
   if (recoveryInvalidBackBtn) recoveryInvalidBackBtn.addEventListener('click', function () { showAuthPanel('signed-out'); });
 
   // These never touch hydraDB, so they work identically whether or not
-  // Supabase is configured — clicking the sidebar pill always opens
-  // Workspace, signed in or not.
+  // Supabase is configured — clicking the sidebar pill always opens the
+  // in-page Hydra Workspace section (sign in/up + account), signed in or
+  // not. This is the one and only sign-in entry point; the sidebar nav
+  // list's "Hydra Workspace" item instead opens the dedicated /workspace
+  // tab (see its markup) — the two are deliberately different targets.
   if (sidebarPill) sidebarPill.addEventListener('click', function () {
-    const navItem = document.querySelector('.nav-item[data-target="workspace"]');
-    if (navItem) navItem.click();
+    const target = document.getElementById('workspace');
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   if (sbNewMission) sbNewMission.addEventListener('click', function (e) { e.preventDefault(); startNewMission(); });
   if (sbLogout) sbLogout.addEventListener('click', function (e) { e.preventDefault(); handleLogOut(); });
+  if (sbNewProjectRow) sbNewProjectRow.addEventListener('click', function () { startNewMission(); });
 
   const pwField = document.getElementById('ws-password');
   if (pwField) pwField.addEventListener('keydown', function (e) {

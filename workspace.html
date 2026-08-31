@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Hydra Workspace — Hydra Compass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@700;800;900&display=swap" rel="stylesheet"/>
+<style>
+/* Same palette as index.html's dark theme — kept minimal and self-contained
+   since this page has no build step / shared stylesheet to import from. */
+:root {
+  --bg: #060b12;
+  --panel: #0d1620;
+  --panel-2: #0a1219;
+  --border: #222834;
+  --cyan: #4db8ff;
+  --cyan-soft: rgba(77,184,255,0.09);
+  --green: #4ddb8f;
+  --green-soft: rgba(77,219,143,0.09);
+  --amber: #e5b84d;
+  --text: #e5eef5;
+  --text-mid: #8a9bad;
+  --text-dim: #4d5d6d;
+  --r10: 10px;
+  --r12: 12px;
+  --fd: 'Orbitron', 'Syne', sans-serif;
+  --fb: 'DM Sans', system-ui, sans-serif;
+  --fm: 'JetBrains Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { color-scheme: dark; -webkit-font-smoothing: antialiased; }
+html, body { background: var(--bg); color: var(--text); font-family: var(--fb); font-size: 14px; line-height: 1.6; min-height: 100%; }
+a { color: inherit; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+[hidden] { display: none !important; }
+
+.wrap { max-width: 780px; margin: 0 auto; padding: 40px 20px 80px; }
+.wrap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+.wrap-title { font-family: var(--fd); font-size: 20px; letter-spacing: 0.03em; }
+.wrap-back { font-size: 12px; color: var(--cyan); text-decoration: underline; }
+
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r12); padding: 20px; margin-bottom: 18px; }
+.card-head { font-family: var(--fd); font-size: 13px; letter-spacing: 0.05em; color: var(--text-mid); margin-bottom: 14px; text-transform: uppercase; }
+
+.status-row { display: flex; flex-direction: column; gap: 6px; font-family: var(--fm); font-size: 13px; color: var(--text-mid); }
+.status-row .v { color: var(--cyan); }
+
+.exec-btn {
+  font-family: var(--fm); font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+  padding: 9px 16px; border-radius: 8px; border: 1px solid var(--border); color: var(--text);
+  display: inline-block;
+}
+.exec-btn.primary { background: var(--cyan-soft); border-color: var(--cyan); color: var(--cyan); }
+.exec-btn.small { padding: 6px 12px; font-size: 11px; }
+.exec-btn:hover { border-color: var(--cyan); }
+
+.proj-row {
+  border: 1px solid var(--border); border-radius: var(--r10); padding: 14px;
+  background: var(--panel-2); display: flex; justify-content: space-between;
+  align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px;
+}
+.proj-row.active { border-color: var(--cyan); }
+.proj-title { font-family: var(--fd); font-size: 14px; }
+.proj-title-btn { text-align: left; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border); }
+.proj-title-btn:hover { color: var(--cyan); text-decoration-color: var(--cyan); }
+.proj-meta { font-size: 12px; color: var(--text-mid); margin-top: 4px; }
+.empty-msg { color: var(--text-dim); font-size: 13px; }
+.loading-msg { color: var(--text-dim); font-size: 13px; }
+
+/* ═══════════ Visual project workspace (PROJECT -> WORKFLOW -> NODE) ═══════════ */
+.pd-back-btn { font-size: 12px; color: var(--cyan); text-decoration: underline; margin-bottom: 16px; display: inline-block; }
+.pd-header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.pd-title { font-family: var(--fd); font-size: 18px; letter-spacing: 0.01em; }
+.pd-goal { color: var(--text-mid); font-size: 13px; margin-top: 6px; }
+.pd-meta-row { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 16px; }
+.pd-meta-item { display: flex; flex-direction: column; gap: 3px; }
+.pd-meta-label { font-family: var(--fm); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.pd-meta-value { font-size: 13px; color: var(--text); }
+.pd-progress-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.pd-progress-track { flex: 1; height: 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; }
+.pd-progress-fill { height: 100%; background: var(--cyan); width: 0%; transition: width 0.3s ease; }
+.pd-progress-label { font-family: var(--fm); font-size: 11px; color: var(--text-mid); white-space: nowrap; }
+.pd-error { margin-top: 12px; }
+
+.wksp-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
+.wksp-tab-btn {
+  font-family: var(--fm); font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+  padding: 10px 14px; color: var(--text-mid); border-bottom: 2px solid transparent;
+}
+.wksp-tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+.wksp-tab-btn:hover:not(.active) { color: var(--text); }
+
+.node-card {
+  border: 1px solid var(--border); border-radius: var(--r10); padding: 14px 16px;
+  background: var(--panel-2);
+}
+.node-card.node-current { border-color: var(--cyan); background: var(--cyan-soft); }
+.node-card.node-complete { opacity: 0.72; }
+.node-card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.node-card-num { font-family: var(--fm); font-size: 12px; color: var(--text-dim); }
+.node-card-title { font-family: var(--fd); font-size: 13px; flex: 1; min-width: 120px; }
+.node-card-status {
+  font-family: var(--fm); font-size: 10px; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-mid); white-space: nowrap;
+}
+.node-card-status.status-complete { color: var(--green); border-color: var(--green); }
+.node-card-status.status-current { color: var(--cyan); border-color: var(--cyan); }
+.node-card-status.status-upcoming { color: var(--text-dim); }
+.node-card-tool { font-size: 12px; color: var(--cyan); margin-top: 8px; }
+.node-card-desc { font-size: 12px; color: var(--text-mid); margin-top: 4px; }
+.node-card-actions { margin-top: 10px; }
+.node-connector { text-align: center; color: var(--text-dim); font-size: 14px; padding: 2px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="wrap-header">
+    <div class="wrap-title">HYDRA WORKSPACE</div>
+    <a class="wrap-back" href="/">← Back to Mission Console</a>
+  </div>
+
+  <!-- Signed-out state: no login form here on purpose — sign in/sign up
+       lives in exactly one place (the existing Hydra Workspace card on the
+       main page) so there is only ever one auth implementation. -->
+  <div id="signed-out-card" class="card" hidden>
+    <div class="card-head">Account</div>
+    <div style="color:var(--text-mid);font-size:13px;">You're not signed in on this device/browser.</div>
+    <div style="margin-top:14px;">
+      <a class="exec-btn primary" href="/#workspace">Go to Hydra Compass to sign in</a>
+    </div>
+  </div>
+
+  <div id="loading-card" class="card">
+    <div class="loading-msg">Loading your workspace…</div>
+  </div>
+
+  <div id="signed-in-card" class="card" hidden>
+    <div class="card-head">Account</div>
+    <div class="status-row">
+      <div>User: <span class="v" id="ws2-email">—</span></div>
+      <div>Plan: <span class="v" id="ws2-plan">—</span></div>
+      <div>Hydra Credits: <span class="v" id="ws2-credits">—</span></div>
+    </div>
+    <div style="margin-top:14px;">
+      <a class="exec-btn" href="/">New Mission</a>
+    </div>
+  </div>
+
+  <!-- Projects list view: pick a project to open its visual workspace. -->
+  <div id="projects-card" class="card" hidden>
+    <div class="card-head">Your Projects</div>
+    <div id="ws2-projects-list"></div>
+  </div>
+
+  <!-- Project detail view: PROJECT -> WORKFLOW -> NODE -> TOOL. Populated by
+       openProjectDetail() below; hidden until a project is opened. Notes /
+       Activity / Files are architected as tabs alongside Workflow for a
+       future pass — they stay placeholders this phase because a real,
+       synced version of any of them needs a new database column, which is
+       explicitly out of scope here (see README-openai-setup.md). -->
+  <div id="project-detail-view" class="card" hidden>
+    <button type="button" id="pd-back-btn" class="pd-back-btn">← All Projects</button>
+
+    <div class="pd-header">
+      <div class="pd-header-top">
+        <div class="pd-title" id="pd-title">—</div>
+        <a class="exec-btn primary" id="pd-resume-link" href="/">Resume in Mission Console</a>
+      </div>
+      <div class="pd-goal" id="pd-goal">—</div>
+      <div class="pd-meta-row">
+        <div class="pd-meta-item"><span class="pd-meta-label">Type</span><span class="pd-meta-value" id="pd-type">—</span></div>
+        <div class="pd-meta-item"><span class="pd-meta-label">Last Updated</span><span class="pd-meta-value" id="pd-updated">—</span></div>
+        <div class="pd-meta-item"><span class="pd-meta-label">Current Node</span><span class="pd-meta-value" id="pd-current-node">—</span></div>
+      </div>
+      <div class="pd-progress-row">
+        <div class="pd-progress-track"><div class="pd-progress-fill" id="pd-progress-bar-fill"></div></div>
+        <div class="pd-progress-label" id="pd-progress">—</div>
+      </div>
+    </div>
+
+    <div class="wksp-tabs" role="tablist" style="margin-top:20px;">
+      <button type="button" class="wksp-tab-btn active" data-tab="workflow">Workflow</button>
+      <button type="button" class="wksp-tab-btn" data-tab="notes">Notes</button>
+      <button type="button" class="wksp-tab-btn" data-tab="activity">Activity</button>
+      <button type="button" class="wksp-tab-btn" data-tab="files">Files</button>
+    </div>
+
+    <div id="tab-workflow" class="wksp-tab-panel"></div>
+    <div id="tab-notes" class="wksp-tab-panel" hidden>
+      <div class="empty-msg">Notes aren't available yet — coming in a future update.</div>
+    </div>
+    <div id="tab-activity" class="wksp-tab-panel" hidden>
+      <div class="empty-msg">Activity history isn't available yet — coming in a future update.</div>
+    </div>
+    <div id="tab-files" class="wksp-tab-panel" hidden>
+      <div class="empty-msg">Files aren't available yet — coming in a future update.</div>
+    </div>
+
+    <div id="pd-error" class="empty-msg pd-error" hidden></div>
+  </div>
+
+  <div id="config-error-card" class="card" hidden>
+    <div class="card-head">Workspace Unavailable</div>
+    <div style="color:var(--text-mid);font-size:13px;">Accounts are temporarily unavailable. Try again later, or return to Hydra Compass to generate a mission without signing in.</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function timeAgo(iso) {
+  if (!iso) return 'recently';
+  var diff = Date.now() - new Date(iso).getTime();
+  var mins = Math.round(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  var hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.round(hrs / 24) + 'd ago';
+}
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+// Same friendly labels index.html uses for the mission-type chips (Video /
+// Audio / Business / Coding / Automate) — duplicated here rather than
+// imported, same as esc()/timeAgo() above, since this is a separate
+// self-contained static file with no shared module/build step.
+var TYPE_LABELS = { content: 'Video', audio: 'Audio', business: 'Business', coding: 'Coding', auto: 'Automate' };
+
+// Normalizes a saved workflow_json step ({step,title,purpose,tool_name,...})
+// into the shape this page's node cards need. Mirrors index.html's
+// normalizeStep() for the same dynamic-mission shape (kept minimal here —
+// this page never needs the exec-panel-only fields like instructions/prompt).
+function normalizeStepLite(s, i) {
+  if (s && s.n !== undefined) {
+    return { n: s.n, name: s.name, desc: s.desc, tool: s.tool };
+  }
+  return {
+    n: String((s && s.step) || (i + 1)).padStart(2, '0'),
+    name: (s && s.title) || ('Node ' + (i + 1)),
+    desc: (s && s.purpose) || '',
+    tool: (s && s.tool_name) || '',
+  };
+}
+
+var CURRENT_SESSION = null;
+
+function renderProjects(projects) {
+  var list = document.getElementById('ws2-projects-list');
+  if (!projects || !projects.length) {
+    list.innerHTML = '<div class="empty-msg">No projects yet — generate a mission on the main page and save it.</div>';
+    return;
+  }
+  list.innerHTML = projects.map(function (p) {
+    return '<div class="proj-row">' +
+      '<div>' +
+        '<button type="button" class="proj-title proj-title-btn" data-project-id="' + esc(p.id) + '">' + esc(p.title) + '</button>' +
+        '<div class="proj-meta">Updated ' + esc(timeAgo(p.updated_at)) + ' · Node ' + esc(String(p.current_node || 1)) + ' · ' + esc(p.status || 'active') + '</div>' +
+      '</div>' +
+      '<a class="exec-btn primary" href="/?resume=' + encodeURIComponent(p.id) + '">Resume</a>' +
+    '</div>';
+  }).join('');
+  list.querySelectorAll('.proj-title-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-project-id');
+      try { history.pushState(null, '', '/workspace?project=' + encodeURIComponent(id)); } catch (e) {}
+      openProjectDetail(id);
+    });
+  });
+}
+
+function showProjectsListView() {
+  document.getElementById('project-detail-view').hidden = true;
+  document.getElementById('projects-card').hidden = false;
+  try { history.replaceState(null, '', '/workspace'); } catch (e) {}
+}
+function showProjectDetailView() {
+  document.getElementById('projects-card').hidden = true;
+  document.getElementById('project-detail-view').hidden = false;
+}
+
+// PROJECT HEADER: title, original goal/idea, type, last updated, progress,
+// current node — all read straight from the saved project row + its latest
+// mission snapshot. Nothing here is hardcoded or duplicated client-side
+// state; it's redrawn fresh from GET /api/projects/:id every time a project
+// is opened.
+function renderProjectHeader(project, mission) {
+  var steps = (mission && mission.workflow_json && mission.workflow_json.steps) || [];
+  var total = Math.max(1, steps.length);
+  var current = Math.max(1, Math.min(project.current_node || 1, total));
+  var currentStep = normalizeStepLite(steps[current - 1], current - 1);
+  var pct = Math.round((current / total) * 100);
+
+  document.getElementById('pd-title').textContent = project.title || project.original_idea || 'Untitled Project';
+  document.getElementById('pd-goal').textContent = project.original_idea || '—';
+  document.getElementById('pd-type').textContent = TYPE_LABELS[project.type] || (project.type ? cap(project.type) : 'General');
+  document.getElementById('pd-updated').textContent = timeAgo(project.updated_at);
+  document.getElementById('pd-progress').textContent = 'Node ' + current + ' of ' + total + ' · ' + pct + '%';
+  document.getElementById('pd-progress-bar-fill').style.width = pct + '%';
+  document.getElementById('pd-current-node').textContent = (steps.length ? currentStep.name : '—');
+  document.getElementById('pd-resume-link').href = '/?resume=' + encodeURIComponent(project.id);
+}
+
+// WORKFLOW VIEW: the saved mission rendered as an ordered visual sequence —
+// straight from workflow_json.steps, never hardcoded. Status per node comes
+// from comparing its node number against projects.current_node (the same
+// source of truth Mission Console's own pipeline uses), not a separate
+// tracked copy. "Open Node" reuses the exact same /?resume=<id> mechanism
+// Resume already uses, with an added &node=<n> so Mission Console jumps
+// straight to that node instead of wherever the project was left off —
+// no new project state, no duplicated source of truth.
+function renderWorkflow(project, mission) {
+  var rawSteps = (mission && mission.workflow_json && mission.workflow_json.steps) || [];
+  var steps = rawSteps.map(normalizeStepLite);
+  var total = Math.max(1, steps.length);
+  var current = Math.max(1, Math.min(project.current_node || 1, total));
+
+  var panel = document.getElementById('tab-workflow');
+  if (!steps.length) {
+    panel.innerHTML = '<div class="empty-msg">No workflow saved for this project yet.</div>';
+    return;
+  }
+
+  panel.innerHTML = steps.map(function (s, i) {
+    var num = i + 1;
+    var status = num < current ? 'complete' : (num === current ? 'current' : 'upcoming');
+    var connector = i < steps.length - 1 ? '<div class="node-connector">↓</div>' : '';
+    return (
+      '<div class="node-card node-' + status + '" data-node="' + num + '" data-status="' + status + '">' +
+        '<div class="node-card-top">' +
+          '<div class="node-card-num">' + esc(s.n) + '</div>' +
+          '<div class="node-card-title">' + esc(s.name) + '</div>' +
+          '<div class="node-card-status status-' + status + '">' + status.toUpperCase() + '</div>' +
+        '</div>' +
+        (s.tool ? '<div class="node-card-tool">' + esc(s.tool) + '</div>' : '') +
+        (s.desc ? '<div class="node-card-desc">' + esc(s.desc) + '</div>' : '') +
+        '<div class="node-card-actions">' +
+          '<a class="exec-btn small node-card-open-btn" href="/?resume=' + encodeURIComponent(project.id) + '&node=' + num + '">Open Node</a>' +
+        '</div>' +
+      '</div>' + connector
+    );
+  }).join('');
+}
+
+async function openProjectDetail(projectId) {
+  var errBox = document.getElementById('pd-error');
+  errBox.hidden = true;
+  errBox.textContent = '';
+  showProjectDetailView();
+
+  if (!CURRENT_SESSION || !CURRENT_SESSION.access_token) {
+    errBox.hidden = false;
+    errBox.textContent = 'You need to be signed in to view this project.';
+    return;
+  }
+
+  try {
+    var res = await fetch('/api/projects/' + encodeURIComponent(projectId), {
+      headers: { Authorization: 'Bearer ' + CURRENT_SESSION.access_token },
+    });
+    if (!res.ok) throw new Error('load_failed');
+    var data = await res.json();
+    if (!data || !data.project) throw new Error('not_found');
+
+    renderProjectHeader(data.project, data.mission);
+    renderWorkflow(data.project, data.mission);
+  } catch (e) {
+    errBox.hidden = false;
+    errBox.textContent = 'Could not load this project — please try again.';
+  }
+}
+
+(function wireProjectDetailChrome() {
+  document.getElementById('pd-back-btn').addEventListener('click', showProjectsListView);
+  document.querySelectorAll('.wksp-tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.wksp-tab-btn').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.querySelectorAll('.wksp-tab-panel').forEach(function (p) { p.hidden = true; });
+      var panel = document.getElementById('tab-' + btn.getAttribute('data-tab'));
+      if (panel) panel.hidden = false;
+    });
+  });
+})();
+
+(async function init() {
+  var loadingCard = document.getElementById('loading-card');
+  var signedOutCard = document.getElementById('signed-out-card');
+  var signedInCard = document.getElementById('signed-in-card');
+  var projectsCard = document.getElementById('projects-card');
+  var configErrorCard = document.getElementById('config-error-card');
+
+  var config = null;
+  try {
+    var cfgRes = await fetch('/api/config');
+    if (cfgRes.ok) config = await cfgRes.json();
+  } catch (e) { /* handled below by the !configured branch */ }
+
+  if (!config || !config.configured || !config.supabaseUrl || !config.supabaseAnonKey ||
+      !window.supabase || typeof window.supabase.createClient !== 'function') {
+    loadingCard.hidden = true;
+    configErrorCard.hidden = false;
+    return;
+  }
+
+  var db;
+  try {
+    db = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+  } catch (e) {
+    loadingCard.hidden = true;
+    configErrorCard.hidden = false;
+    return;
+  }
+
+  var sessionRes = await db.auth.getSession();
+  var session = sessionRes && sessionRes.data ? sessionRes.data.session : null;
+  loadingCard.hidden = true;
+
+  if (!session || !session.access_token) {
+    signedOutCard.hidden = false;
+    return;
+  }
+  CURRENT_SESSION = session;
+
+  try {
+    var res = await fetch('/api/projects', {
+      headers: { Authorization: 'Bearer ' + session.access_token },
+    });
+    if (!res.ok) throw new Error('projects_load_failed');
+    var data = await res.json();
+
+    signedInCard.hidden = false;
+    document.getElementById('ws2-email').textContent = (session.user && session.user.email) || '—';
+    document.getElementById('ws2-plan').textContent = (data.profile && data.profile.plan) || 'free';
+    document.getElementById('ws2-credits').textContent = String(data.profile && data.profile.hydra_credit_balance != null ? data.profile.hydra_credit_balance : 0);
+
+    projectsCard.hidden = false;
+    renderProjects(data.projects || []);
+
+    // Deep link into a specific project's visual workspace, e.g.
+    // /workspace?project=<id> — the same query-param pattern index.html's
+    // own /?resume=<id> already uses.
+    var initialProjectId = null;
+    try { initialProjectId = new URLSearchParams(window.location.search).get('project'); } catch (e) {}
+    if (initialProjectId) openProjectDetail(initialProjectId);
+  } catch (e) {
+    configErrorCard.hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
